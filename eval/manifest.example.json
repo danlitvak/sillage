@@ -1,0 +1,7 @@
+[
+  { "file": "sauvage-edp.jpg",      "brand": "Dior",     "name": "Sauvage",        "concentration": "edp" },
+  { "file": "sauvage-elixir.jpg",   "brand": "Dior",     "name": "Sauvage Elixir", "concentration": "unknown" },
+  { "file": "bleu-de-chanel.jpg",   "brand": "Chanel",   "name": "Bleu de Chanel", "concentration": "edp" },
+  { "file": "layton.jpg",           "brand": "Parfums de Marly", "name": "Layton", "concentration": "edp" },
+  { "file": "club-de-nuit.jpg",     "brand": "Armaf",    "name": "Club de Nuit Intense Man", "concentration": "edt" }
+]

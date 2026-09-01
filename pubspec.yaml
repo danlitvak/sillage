@@ -1,0 +1,59 @@
+name: sillage
+description: "sillage — photograph a fragrance, identify it, collect it, and get recommendations that key off how you actually buy."
+publish_to: 'none'
+
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.12.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+
+  # Auth, Postgres and Storage in one client. The anon key it ships with is
+  # public by design — every table is behind RLS, and the Anthropic key lives
+  # in an Edge Function, never here. See docs/ARCHITECTURE.md.
+  supabase_flutter: ^2.8.0
+
+  # Camera on Android, file picker everywhere else. The degradation is the
+  # point: the Windows target is the development harness, because an emulator's
+  # camera shows a synthetic scene and cannot photograph a real bottle.
+  image_picker: ^1.1.2
+
+  # Resize before upload. Claude downscales anything past 1568px on its longest
+  # edge anyway, so sending more is paying to upload pixels that get thrown away.
+  #
+  # `image` rather than flutter_image_compress: the latter has no Windows
+  # implementation, and Windows is this project's development harness — an
+  # emulator's camera shows a synthetic scene and cannot photograph a bottle.
+  # Pure Dart also means the resize path is testable without a device.
+  image: ^4.3.0
+
+  # Every screen here is an async request with loading/error/data states, which
+  # is exactly what AsyncValue models.
+  flutter_riverpod: ^2.6.1
+
+  go_router: ^14.6.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+
+  # Bundled rather than fetched at runtime, so the app works with no network.
+  # Both are variable fonts (wght axis), so one file covers every weight the
+  # theme asks for. OFL licences ship alongside them in assets/fonts/.
+  fonts:
+    - family: JetBrainsMono
+      fonts:
+        - asset: assets/fonts/JetBrainsMono.ttf
+    - family: Inter
+      fonts:
+        - asset: assets/fonts/Inter.ttf

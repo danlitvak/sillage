@@ -1,0 +1,29 @@
+# Flutter / Dart
+.dart_tool/
+.packages
+build/
+*.iml
+.flutter-plugins
+.flutter-plugins-dependencies
+pubspec.lock
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Local secrets — the Supabase URL and publishable key are passed with
+# --dart-define at build time and must never be committed. ANTHROPIC_API_KEY
+# lives only in Supabase function secrets and never touches this repo.
+.env
+.env.*
+!.env.example
+
+# Supabase local state
+supabase/.branches/
+supabase/.temp/
+
+# The eval set: photographs of a personal collection, plus the manifest that is
+# only meaningful alongside them. The example manifest IS tracked.
+eval/photos/
+eval/manifest.json
