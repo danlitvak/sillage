@@ -283,6 +283,41 @@ void main() {
       });
     }
 
+    test('Eau Fraiche in a NAME is not a strength', () {
+      // ------------------------------------------------------------------
+      // Found by a real photograph, not by reasoning.
+      //
+      // `Eau Fraiche` was in concentrationPatterns because it IS a genuine
+      // (weak) concentration. But it is far more often part of a product name,
+      // and stripping it collapsed `Versace Man Eau Fraiche` onto `Versace
+      // Man` — two different fragrances, one catalog row, silently. The same
+      // failure mode as the Elixir case, missed because the word looks more
+      // like a strength than Elixir does.
+      //
+      // The bottle settles it: it prints EAU FRAICHE as the name and EAU DE
+      // TOILETTE as the strength, on the same label.
+      // ------------------------------------------------------------------
+      final result = extractConcentration('Man Eau Fraiche');
+      expect(result.name, 'man eau fraiche');
+      expect(result.concentration, Concentration.unknown);
+    });
+
+    test('Versace Man Eau Fraiche does NOT collide with Versace Man', () {
+      final fraiche = key('Versace', 'Man Eau Fraiche', 'edt');
+      final man = key('Versace', 'Man', 'edt');
+      expect(fraiche, isNot(man));
+      expect(fraiche.name, 'maneaufraiche');
+      expect(man.name, 'man');
+    });
+
+    test('an explicitly declared eau fraiche strength still resolves', () {
+      // Removing the name pattern must not remove the ability to record the
+      // concentration when a label genuinely declares it.
+      final k = key('Chanel', 'Chance', 'eau fraiche');
+      expect(k.concentration, Concentration.eauFraiche);
+      expect(k.name, 'chance');
+    });
+
     test('Sauvage Elixir keeps elixir in its catalog key', () {
       final k = key('Dior', 'Sauvage Elixir');
       expect(k.name, 'sauvageelixir');

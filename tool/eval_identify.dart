@@ -109,6 +109,7 @@ void main(List<String> args) async {
       continue;
     }
 
+    final tag = entry['tag'] as String? ?? 'untagged';
     final expected = buildFragranceKey(
       rawBrand: entry['brand'] as String,
       rawName: entry['name'] as String,
@@ -130,13 +131,14 @@ void main(List<String> args) async {
       );
       inputTokens += (response['usage']?['input'] as int?) ?? 0;
       outputTokens += (response['usage']?['output'] as int?) ?? 0;
-      final result = _grade(fileName, expected, response);
+      final result = _grade(fileName, expected, response, tag);
       results.add(result);
       stdout.writeln('  ${result.mark}  $fileName${result.detail}');
     } catch (e) {
       stdout.writeln('  ERR   $fileName — $e');
       results.add(_Result(
         file: fileName,
+        tag: tag,
         declined: false,
         top1: false,
         top3: false,
@@ -195,6 +197,7 @@ List<int> _resizeLikeTheApp(List<int> bytes) {
 class _Result {
   _Result({
     required this.file,
+    this.tag = 'untagged',
     required this.declined,
     required this.top1,
     required this.top3,
@@ -206,6 +209,13 @@ class _Result {
   });
 
   final String file;
+
+  /// Which slice of the set this came from — `studio`, `nice` or `off`.
+  ///
+  /// The breakdown is the point of the whole exercise: a number averaged over
+  /// clean product shots and awkward hand-held ones tells you nothing about
+  /// either.
+  final String tag;
 
   /// Returned no candidates. Designed behaviour, reported separately.
   final bool declined;
@@ -230,13 +240,15 @@ class _Result {
   }
 }
 
-_Result _grade(String file, FragranceKey expected, Map<String, dynamic> body) {
+_Result _grade(String file, FragranceKey expected, Map<String, dynamic> body,
+    String tag) {
   final candidates = (body['candidates'] as List? ?? const [])
       .cast<Map<String, dynamic>>();
 
   if (candidates.isEmpty) {
     return _Result(
       file: file,
+      tag: tag,
       declined: true,
       top1: false,
       top3: false,
@@ -268,6 +280,7 @@ _Result _grade(String file, FragranceKey expected, Map<String, dynamic> body) {
 
   return _Result(
     file: file,
+    tag: tag,
     declined: false,
     top1: matches(first),
     top3: keys.any(matches),
@@ -367,6 +380,25 @@ void _report(List<_Result> results) {
     ..writeln('confirm sheet shows a shortlist and the user picks. Expected')
     ..writeln('concentrations are what is LEGIBLE in each photo, so answering')
     ..writeln('"unknown" to an unprinted strength scores as correct.');
+
+  // --- the breakdown that matters -----------------------------------------
+  final tags = results.map((r) => r.tag).toSet().toList()..sort();
+  if (tags.length > 1) {
+    stdout
+      ..writeln('')
+      ..writeln('BY SLICE')
+      ..writeln('  ${'slice'.padRight(10)}  n   top-1   top-3   brand   conc');
+    for (final tag in tags) {
+      final slice =
+          attempted.where((r) => r.tag == tag).toList();
+      if (slice.isEmpty) continue;
+      String p(bool Function(_Result) f) =>
+          '${(slice.where(f).length / slice.length * 100).round()}%'.padLeft(5);
+      stdout.writeln('  ${tag.padRight(10)} ${slice.length.toString().padLeft(2)}  '
+          '${p((r) => r.top1)}   ${p((r) => r.top3)}   '
+          '${p((r) => r.brand)}   ${p((r) => r.concentration)}');
+    }
+  }
 
   final misses = attempted.where((r) => !r.top3).toList();
   if (misses.isNotEmpty) {

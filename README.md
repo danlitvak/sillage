@@ -173,43 +173,74 @@ truncated to three *before* validation, so a response of
 
 ### Measured: identification
 
-Against the 7-image set in `eval/` (`tool/eval_identify.dart`, `claude-opus-5`),
-with each photo resized to the same 1568px bound the app applies:
+15 photographs: 7 clean studio shots from Wikimedia, and 8 taken by hand of four
+real bottles — four at a reasonable angle (`nice`) and four deliberately awkward
+(`off`: angled, glare, thumb across the label, liquid behind the text).
+`claude-opus-5`, each image resized to the same 1568px bound the app applies.
 
-| | |
+| slice | n | top-1 | top-3 | brand | concentration |
+|---|---|---|---|---|---|
+| studio | 7 | 100% | 100% | 100% | 100% |
+| **nice** (hand-held) | 4 | **100%** | **100%** | **100%** | **100%** |
+| **off** (hand-held, awkward) | 4 | **75%** | **75%** | **100%** | **75%** |
+| all | 15 | 93.3% | 93.3% | 100% | 93.3% |
+
+**$0.018 per scan**, 167 KB uploaded each.
+
+Two full runs gave identical totals. **The brand and the name were correct on
+every image in both runs** — including `L'Homme` printed on glass with amber
+liquid behind it, `9pm Night Out` with a thumb across the 9, and
+`Supremacy Collector's Edition`.
+
+#### The one miss is a genuine ambiguity, and it is not stable
+
+Every failure in the table is the same image — `hand-versace-fraiche-off.jpg` —
+and only its *concentration* field. Three calls on that one photo returned three
+different answers:
+
+| call | concentration |
 |---|---|
-| top-1 | **7/7** |
-| top-3 | **7/7** |
-| brand | **7/7** |
-| concentration | **7/7** — 3 read off the label, 4 correctly answered `unknown` |
-| declined to guess | 0 |
-| cost | **$0.016 per scan** (12,194 in / 2,086 out over 7 scans; 140 KB uploaded each) |
+| run 1 | `edt` |
+| ad-hoc re-run | `unknown` ← correct |
+| run 2 | `eau_fraiche` |
 
-**The first run scored 6/7, and the miss was my labelling error, not the
-model's.** I had written the Boss ground truth as `Bottled`; the model returned
-`Boss Bottled`, which is what the box says and what the house calls it. The
-manifest is corrected and the correction is recorded in `eval/manifest.json` —
-worth knowing when reading the 7/7, because the number moved by fixing the test,
-not the code.
+The bottle reads `VERSACE MAN` on the plaque and `EAU FRAÎCHE` embossed on the
+glass; the real strength, `EAU DE TOILETTE`, is printed on the back and is not
+readable at that angle. So the model is oscillating over exactly the question
+that **broke this project's own normalisation** — is "Eau Fraîche" the name or
+the strength? — and the honest answer is that the photograph does not settle it.
 
-Both designed traps passed:
+Two things follow, and both were already designed for:
 
-- **Eau Sauvage** was not confused with Sauvage, and came back as a *shortlist*
-  of its own flanker family (Eau Sauvage / Parfum / Extreme) at a modest 0.60
-  top confidence — the ambiguity surviving to the confirm sheet, exactly as
-  intended.
-- **1 Million Lucky** was not confused with 1 Million; the model read
-  `1 MILLION / LUCKY / 50 ml 1.7 fl.oz / paco rabanne` off the bottle.
-- Brand aliasing did real work: `Christian Dior` and `Paco Rabanne` came back
-  from the model and normalised to `dior` and `rabanne`.
+- **Identification is non-deterministic.** A single run is a noisy sample. This
+  README quotes two runs and names the unstable field rather than one number.
+- **This is what the confirm sheet is for.** An unread strength is marked
+  `STRENGTH UNREAD` and the user picks. The design never assumed the model would
+  resolve an ambiguity the bottle itself does not.
 
-**What this number is not.** Seven images, all clean studio product shots. Real
-use is a bottle at an angle in shop lighting with the label half-turned away.
-This says the pipeline reads a legible label correctly and that the prompt is
-not broken; it says nothing yet about field performance, and the `declined`
-column has never been exercised because every one of these was legible.
+#### What this set found
 
-### Verified against a live database
+The hand-held photographs earned their place immediately — one of them exposed a
+real bug in `identity.dart`. `Eau Fraiche` was in `concentrationPatterns`
+because it *is* a genuine weak concentration, and stripping it collapsed
+**`Versace Man Eau Fraiche` onto `Versace Man`**: two different fragrances, one
+catalog row, silently. Same failure mode as the Elixir case, missed because the
+phrase looks far more like a strength than `Elixir` does. Fixed, with three
+regression tests.
+
+Two of the user-supplied filenames were also wrong about the strength —
+`afnan 9pm night out edp` is `extrait de parfum` on the bottle, and
+`versace eux fraiche edp` is an EDT. Ground truth came from the images.
+
+#### What this number still is not
+
+Fifteen photographs of eleven fragrances, four of them from one shelf. The
+`declined` column has **never fired** — every image so far has been legible, so
+the "return no candidates" path that the whole design leans on remains
+unexercised. And `off` is 4 images: 75% there is one field on one photo, not a
+rate you could quote.
+
+### Verified against a live database### Verified against a live database
 
 The migrations were applied to a local Supabase stack and the security-critical
 behaviour exercised directly, because none of it is reachable from a Dart test:

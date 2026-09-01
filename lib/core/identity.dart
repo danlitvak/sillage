@@ -37,13 +37,23 @@
 ///    packaging and in real model output. Mapping `&`→`and` reconciles the
 ///    first two and strands the third; dropping both reconciles all three.
 ///
-/// 3. `Elixir`, `Intense`, `Absolu`, `Extreme` and `Le Parfum` STAY IN THE NAME
-///    and are not treated as concentrations. They read like strengths but they
-///    are product names: Sauvage Elixir is a different fragrance from Sauvage
-///    EDP, not the same juice at a different concentration, and Dior Homme
-///    Intense has a different note pyramid from Dior Homme. Only the six
-///    genuine concentrations below are lifted out of the name. Getting this
-///    backwards would merge fragrances that smell nothing alike.
+/// 3. `Elixir`, `Intense`, `Absolu`, `Extreme`, `Le Parfum` AND `Eau Fraiche`
+///    STAY IN THE NAME and are not treated as concentrations. They read like
+///    strengths but they are product names: Sauvage Elixir is a different
+///    fragrance from Sauvage EDP, not the same juice at a different
+///    concentration, and Dior Homme Intense has a different note pyramid from
+///    Dior Homme. Getting this backwards merges fragrances that smell nothing
+///    alike.
+///
+///    `Eau Fraiche` is the one that got away, and it is worth recording how.
+///    Unlike the others it IS a genuine (weak) concentration, so it was in the
+///    pattern list — until a photograph of a real bottle showed the cost: the
+///    label reads `VERSACE MAN` / `EAU FRAICHE` on the front and `EAU DE
+///    TOILETTE` on the back, so the phrase is the NAME and the strength is
+///    printed separately. Stripping it collapsed `Versace Man Eau Fraiche`
+///    onto `Versace Man` — two real, different fragrances, one row, no error.
+///    A declared strength of "eau fraiche" still resolves through
+///    `_parseDeclaredConcentration`; it is only name-extraction that stops.
 ///
 /// Pure Dart, no Flutter import — so the test suite runs in milliseconds and the
 /// whole file is exercisable without a device.
@@ -138,7 +148,7 @@ const List<(String, Concentration)> concentrationPatterns = [
   ('eau de perfume', Concentration.edp), // common misspelling in the wild
   ('perfume extract', Concentration.extrait),
   ('pure perfume', Concentration.extrait),
-  ('eau fraiche', Concentration.eauFraiche),
+  // `eau fraiche` is DELIBERATELY ABSENT from this list. See the note below.
   ('perfume oil', Concentration.oil),
   ('parfum oil', Concentration.oil),
   ('pure parfum', Concentration.extrait),
