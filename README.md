@@ -149,15 +149,40 @@ The TypeScript suite caught a real bug on its first run: candidates were
 truncated to three *before* validation, so a response of
 `[null, "text", 42, {a good candidate}]` yielded nothing at all.
 
+### Verified against a live database
+
+The migrations were applied to a local Supabase stack and the security-critical
+behaviour exercised directly, because none of it is reachable from a Dart test:
+
+| Checked | Result |
+|---|---|
+| A human correction survives a later model rescan | source stays `user`, 3 notes kept, the rescan's `vanilla` never lands |
+| Three proposals of one fragrance | one row, one id — the cache that makes `enrich` run once per fragrance |
+| A note alias resolves instead of forking the vocabulary | same note id returned |
+| A second user reading the first user's collection | 0 rows |
+| A second user writing a row owned by the first | `new row violates row-level security policy` |
+| A client `INSERT` straight into the catalog | `permission denied for table fragrances` |
+| The catalog itself, across users | shared and readable, as intended |
+
+That run found a real bug that no unit test could: **RLS policies alone do not
+grant table access.** Every table had RLS and policies and no `GRANT`, so the
+first real read failed with `permission denied for table fragrances` — the
+policies were never even consulted. Grants are now explicit in
+`20260831120000_init.sql`, scoped narrowly (the catalog is SELECT-only for
+clients; `llm_usage` is read-only so a client cannot forge or erase its own cost
+record).
+
 ---
 
 ## What is not done
 
 Stated plainly, because the interesting parts are finished and these are not.
 
-- **No backend has been provisioned.** Migrations, functions and client are
-  written; nothing has run against a live Supabase project, so no scan has ever
-  completed end to end.
+- **No hosted backend.** The schema is verified — all three migrations apply
+  cleanly to a local Supabase stack, and the behaviour below was exercised
+  against a real Postgres (see *Verified against a live database*). But nothing
+  is deployed to a hosted project, so **no scan has completed end to end** and
+  the Edge Functions have never run against the live Anthropic API.
 - **Identification accuracy is unmeasured.** The harness exists
   ([`tool/eval_identify.dart`](tool/eval_identify.dart), graded through the same
   normalisation the app uses) but needs a photo set. Until it runs, this README

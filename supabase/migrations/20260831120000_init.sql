@@ -362,3 +362,37 @@ create trigger fragrances_touch before update on fragrances
 
 create trigger collection_items_touch before update on collection_items
   for each row execute function touch_updated_at();
+
+-- =============================================================================
+-- TABLE GRANTS
+-- =============================================================================
+-- RLS AND GRANTS ARE TWO DIFFERENT GATES AND BOTH ARE REQUIRED.
+--
+-- A policy answers "which ROWS may this role see". A grant answers "may this
+-- role touch this table at all". Enabling RLS and writing policies without
+-- granting gets you `permission denied for table fragrances` on every single
+-- read — the policies are never even consulted.
+--
+-- This is easy to miss because Supabase configures default privileges for the
+-- `postgres` role, so tables created in some contexts pick grants up for free.
+-- Migrations do not always run in one of those contexts, and the failure only
+-- surfaces the first time a real client reads a real table. Found exactly that
+-- way, against a local stack, before any of it was deployed.
+--
+-- Granted deliberately narrowly:
+--   * the catalog is SELECT-only for clients — writes go through
+--     catalog_propose_fragrance (see 20260831120100_catalog_writes.sql)
+--   * per-user tables get full DML, and RLS confines it to the caller's rows
+--   * llm_usage is SELECT-only: the Edge Function writes it on the service
+--     role, so a client cannot forge or erase its own cost record
+
+grant select on
+  brands, fragrances, notes, note_aliases, fragrance_notes,
+  accords, fragrance_accords, clone_of
+  to authenticated;
+
+grant select, insert, update, delete on
+  profiles, collection_items, scans, recommendation_feedback
+  to authenticated;
+
+grant select on llm_usage to authenticated;
