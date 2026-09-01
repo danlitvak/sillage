@@ -29,12 +29,11 @@ import 'dart:ui' as ui;
 
 import 'package:image/image.dart' as img;
 
-/// Claude's own ceiling. Beyond this the API downscales anyway.
-const int maxImageEdge = 1568;
+// The bounds live in photo_limits.dart, which has no Flutter dependency, so the
+// eval harness can resize to exactly the same numbers without dart:ui.
+export 'photo_limits.dart' show jpegQuality, maxImageEdge;
 
-/// Quality for the re-encode. 85 is visually indistinguishable for label text
-/// at this size and roughly halves the payload against 95.
-const int jpegQuality = 85;
+import 'photo_limits.dart';
 
 /// A photo, resized and re-encoded ready to send.
 class PreparedPhoto {

@@ -59,8 +59,11 @@ library;
 
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
+import 'package:image/image.dart' as img;
 import 'package:sillage/core/identity.dart';
+import 'package:sillage/data/photo_limits.dart' show jpegQuality, maxImageEdge;
 
 void main(List<String> args) async {
   final options = _parseArgs(args);
@@ -92,6 +95,9 @@ void main(List<String> args) async {
   final photoDir = Directory(options.manifestPath).parent.path;
   final client = HttpClient();
   final results = <_Result>[];
+  var inputTokens = 0;
+  var outputTokens = 0;
+  var totalBytes = 0;
 
   stdout.writeln('Evaluating ${entries.length} photographs...\n');
 
@@ -110,12 +116,20 @@ void main(List<String> args) async {
     );
 
     try {
+      // Resized FIRST, exactly as the app does before it uploads. Sending the
+      // raw file would measure a path no user ever takes — and cost several
+      // times the tokens: the untouched Eau Sauvage photo billed 4,974 input
+      // tokens against 884 for an already-small one.
+      final prepared = _resizeLikeTheApp(await photo.readAsBytes());
+      totalBytes += prepared.length;
       final response = await _identify(
         client: client,
         url: options.url,
         token: options.token,
-        bytes: await photo.readAsBytes(),
+        bytes: prepared,
       );
+      inputTokens += (response['usage']?['input'] as int?) ?? 0;
+      outputTokens += (response['usage']?['output'] as int?) ?? 0;
       final result = _grade(fileName, expected, response);
       results.add(result);
       stdout.writeln('  ${result.mark}  $fileName${result.detail}');
@@ -136,6 +150,44 @@ void main(List<String> args) async {
 
   client.close();
   _report(results);
+
+  // Cost, from the tokens the API actually reported rather than an estimate.
+  // Claude Opus 5 is \$5 / MTok in, \$25 / MTok out.
+  final n = results.where((r) => !r.errored).length;
+  if (n > 0) {
+    final cost = inputTokens / 1e6 * 5 + outputTokens / 1e6 * 25;
+    stdout
+      ..writeln('')
+      ..writeln('COST (claude-opus-5, \$5/\$25 per MTok)')
+      ..writeln('  ${(totalBytes / n / 1024).round()} KB uploaded per scan '
+          '(after the same resize the app applies)')
+      ..writeln('  $inputTokens in / $outputTokens out over $n scans')
+      ..writeln('  \$${cost.toStringAsFixed(4)} total, '
+          '\$${(cost / n).toStringAsFixed(4)} per scan');
+  }
+}
+
+/// Mirrors `preparePhoto` in lib/data/photo.dart — the same 1568px bound and
+/// the same JPEG quality.
+///
+/// Reimplemented on the `image` package rather than reused directly because
+/// `preparePhoto` decodes through `dart:ui`, which needs Flutter bindings this
+/// script deliberately does without. The constraint is what matters, and it is
+/// identical; only the decoder differs.
+List<int> _resizeLikeTheApp(List<int> bytes) {
+  final decoded = img.decodeImage(Uint8List.fromList(bytes));
+  if (decoded == null) return bytes;
+  final longest =
+      decoded.width > decoded.height ? decoded.width : decoded.height;
+  final resized = longest <= maxImageEdge
+      ? decoded
+      : img.copyResize(
+          decoded,
+          width: decoded.width >= decoded.height ? maxImageEdge : null,
+          height: decoded.height > decoded.width ? maxImageEdge : null,
+          interpolation: img.Interpolation.average,
+        );
+  return img.encodeJpg(resized, quality: jpegQuality);
 }
 
 // =============================================================================

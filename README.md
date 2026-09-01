@@ -171,6 +171,44 @@ The TypeScript suite caught a real bug on its first run: candidates were
 truncated to three *before* validation, so a response of
 `[null, "text", 42, {a good candidate}]` yielded nothing at all.
 
+### Measured: identification
+
+Against the 7-image set in `eval/` (`tool/eval_identify.dart`, `claude-opus-5`),
+with each photo resized to the same 1568px bound the app applies:
+
+| | |
+|---|---|
+| top-1 | **7/7** |
+| top-3 | **7/7** |
+| brand | **7/7** |
+| concentration | **7/7** — 3 read off the label, 4 correctly answered `unknown` |
+| declined to guess | 0 |
+| cost | **$0.016 per scan** (12,194 in / 2,086 out over 7 scans; 140 KB uploaded each) |
+
+**The first run scored 6/7, and the miss was my labelling error, not the
+model's.** I had written the Boss ground truth as `Bottled`; the model returned
+`Boss Bottled`, which is what the box says and what the house calls it. The
+manifest is corrected and the correction is recorded in `eval/manifest.json` —
+worth knowing when reading the 7/7, because the number moved by fixing the test,
+not the code.
+
+Both designed traps passed:
+
+- **Eau Sauvage** was not confused with Sauvage, and came back as a *shortlist*
+  of its own flanker family (Eau Sauvage / Parfum / Extreme) at a modest 0.60
+  top confidence — the ambiguity surviving to the confirm sheet, exactly as
+  intended.
+- **1 Million Lucky** was not confused with 1 Million; the model read
+  `1 MILLION / LUCKY / 50 ml 1.7 fl.oz / paco rabanne` off the bottle.
+- Brand aliasing did real work: `Christian Dior` and `Paco Rabanne` came back
+  from the model and normalised to `dior` and `rabanne`.
+
+**What this number is not.** Seven images, all clean studio product shots. Real
+use is a bottle at an angle in shop lighting with the label half-turned away.
+This says the pipeline reads a legible label correctly and that the prompt is
+not broken; it says nothing yet about field performance, and the `declined`
+column has never been exercised because every one of these was legible.
+
 ### Verified against a live database
 
 The migrations were applied to a local Supabase stack and the security-critical
@@ -204,12 +242,12 @@ record).
 
 Stated plainly, because the interesting parts are finished and these are not.
 
-- **Identification has never run.** It needs an `ANTHROPIC_API_KEY`, and there
-  isn't one — so `identify`, `enrich` and `suggest` have never been called, and
-  **identification accuracy is unmeasured**. The eval set is staged and waiting
-  (7 verified photos in `eval/`); the harness runs the moment a key exists.
 - **No hosted backend.** Everything runs against `supabase start`. Nothing is
-  deployed.
+  deployed, so the app has never run anywhere but this machine.
+- **Accuracy is measured on 7 clean studio photographs, which is an upper
+  bound** — see below. No photograph taken by hand has ever gone through it.
+- **The clone table has 2 hand-written edges.** Enough to prove the strategy;
+  nowhere near a useful seed.
 - **Identification accuracy is unmeasured.** The harness exists
   ([`tool/eval_identify.dart`](tool/eval_identify.dart), graded through the same
   normalisation the app uses) but needs a photo set. Until it runs, this README
