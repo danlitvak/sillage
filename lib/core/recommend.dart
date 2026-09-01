@@ -256,28 +256,54 @@ List<Recommendation> _pattern(RecommendationInput input, List<Fragrance> pool) {
   final out = <Recommendation>[];
   final byId = {for (final f in pool) f.id: f};
 
+  // --- you own a clone → here is the original ------------------------------
+  //
+  // Runs on the OWNED CLONE EDGES directly, NOT gated on the clone-buyer
+  // detector, and that distinction was got wrong the first time.
+  //
+  // Gating it on the pattern meant a shelf of 2 clones in 7 produced no
+  // "here's the original" at all, because clone-buyer needs a strict majority.
+  // But those are two different questions: the DETECTOR describes a collection
+  // ("you mostly buy dupes"), while this RECOMMENDATION rests on a specific
+  // recorded relationship between two bottles. Owning one clone makes its
+  // original the single most relevant thing to suggest, whatever the rest of
+  // the shelf looks like — and this is the app's most distinctive suggestion,
+  // so hiding it behind a majority threshold made it unreachable for most
+  // real collections.
+  final cloneBuyer = input.profile.patterns
+      .where((p) => p.kind == PatternKind.cloneBuyer)
+      .firstOrNull;
+
+  for (final item in input.owned) {
+    final originalId = item.fragrance.cloneOfId;
+    if (originalId == null) continue;
+    final original = byId[originalId];
+    if (original == null) continue;
+
+    // The dominant-pattern evidence sharpens the sentence when it exists, but
+    // the recommendation stands without it.
+    final tail = cloneBuyer == null
+        ? ''
+        : ' ${cloneBuyer.evidence['clones']} of your '
+            '${cloneBuyer.evidence['total']} bottles are dupes.';
+
+    out.add(Recommendation(
+      fragrance: original,
+      strategy: RecStrategy.pattern,
+      // The highest score the app produces, and the only one that is not an
+      // estimate: this is a recorded relationship, not a similarity.
+      score: 0.95,
+      explanation:
+          'You own ${item.fragrance.displayName}, a dupe of this.$tail',
+      relatedFragranceId: item.fragrance.id,
+    ));
+  }
+
   for (final pattern in input.profile.patterns) {
     switch (pattern.kind) {
-      // --- you buy clones → here is the original --------------------------
+      // Handled above, on the edges themselves rather than on the detector.
       case PatternKind.cloneBuyer:
-        for (final item in input.owned) {
-          final originalId = item.fragrance.cloneOfId;
-          if (originalId == null) continue;
-          final original = byId[originalId];
-          if (original == null) continue;
-          out.add(Recommendation(
-            fragrance: original,
-            strategy: RecStrategy.pattern,
-            // Highest confidence of anything the app produces: this is not a
-            // similarity estimate, it is a recorded relationship.
-            score: 0.95,
-            explanation:
-                'You own ${item.fragrance.displayName}, a dupe of this. '
-                '${pattern.evidence['clones']} of your '
-                '${pattern.evidence['total']} bottles are clones.',
-            relatedFragranceId: item.fragrance.id,
-          ));
-        }
+        break;
 
       // --- loyal to a house → its releases you do not have ----------------
       case PatternKind.houseLoyalist:

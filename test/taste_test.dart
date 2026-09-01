@@ -554,6 +554,66 @@ void main() {
       expect(patterns.first.relatedFragranceId, isNotNull);
     });
 
+    test('a single owned clone surfaces its original, without a clone majority',
+        () {
+      // The regression this pins: the clone -> original suggestion used to be
+      // gated on the clone-BUYER detector, which needs a strict majority. A
+      // shelf of one dupe in five therefore produced no suggestion at all —
+      // hiding the app's most distinctive recommendation from most real
+      // collections. The edge is the evidence; the detector is only commentary.
+      final original = _frag('aventus', brand: 'creed', tier: BrandTier.niche);
+      final owned = [
+        _frag('cdni', brand: 'armaf', cloneOf: original.id),
+        _frag('r1', brand: 'dior'),
+        _frag('r2', brand: 'chanel'),
+        _frag('r3', brand: 'ysl'),
+        _frag('r4', brand: 'prada'),
+      ];
+      final stats = CatalogStats.from([...owned, original]);
+      final items = owned.map(_item).toList();
+      final profile = buildTasteProfile(items: items, stats: stats);
+
+      // 1 of 5 is well under the threshold — the detector must NOT fire...
+      expect(profile.patterns.any((p) => p.kind == PatternKind.cloneBuyer),
+          isFalse);
+
+      // ...and the recommendation must appear anyway.
+      final result = recommend(RecommendationInput(
+        profile: profile,
+        owned: items,
+        candidates: [original],
+        stats: stats,
+      ));
+      final patterns = result[RecStrategy.pattern]!;
+      expect(patterns.map((r) => r.fragrance.id), contains('aventus'));
+      final rec = patterns.firstWhere((r) => r.fragrance.id == 'aventus');
+      expect(rec.explanation, contains('dupe'));
+      expect(rec.relatedFragranceId, isNotNull);
+      // No majority, so no "N of your M" tail claiming one.
+      expect(rec.explanation, isNot(contains('of your')));
+    });
+
+    test('with a clone majority the explanation gains the count', () {
+      final original = _frag('aventus', brand: 'creed');
+      final owned = [
+        _frag('c1', brand: 'armaf', cloneOf: original.id),
+        _frag('c2', brand: 'lattafa', cloneOf: original.id),
+        _frag('c3', brand: 'alexandria', cloneOf: original.id),
+        _frag('r1', brand: 'dior'),
+      ];
+      final stats = CatalogStats.from([...owned, original]);
+      final items = owned.map(_item).toList();
+      final result = recommend(RecommendationInput(
+        profile: buildTasteProfile(items: items, stats: stats),
+        owned: items,
+        candidates: [original],
+        stats: stats,
+      ));
+      final rec = result[RecStrategy.pattern]!
+          .firstWhere((r) => r.fragrance.id == 'aventus');
+      expect(rec.explanation, contains('3 of your 4'));
+    });
+
     test('a fragrance qualifying twice appears once', () {
       // The house you are loyal to also makes the note you chase.
       final owned = [

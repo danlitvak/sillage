@@ -93,11 +93,26 @@ flutter pub get
 ```
 
 Development happens on the **Windows target**, because an Android emulator's
-camera renders a synthetic scene and cannot photograph a bottle:
+camera renders a synthetic scene and cannot photograph a bottle. Windows plugin
+builds need Developer Mode on (`start ms-settings:developers`) for symlink
+support.
+
+Bring up the local stack — migrations and a seeded shelf apply automatically:
 
 ```bash
-flutter run -d windows --dart-define=SUPABASE_URL=https://xxxx.supabase.co --dart-define=SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
+supabase start
 ```
+
+Then run against it:
+
+```bash
+flutter run -d windows --dart-define=SUPABASE_URL=http://127.0.0.1:54321 --dart-define=SUPABASE_PUBLISHABLE_KEY=sb_publishable_ACJWlzQHlZjBrEguHvfOxg_3BJgxAaH
+```
+
+The seed creates `dev@sillage.local` / `sillage123` with seven bottles on the
+shelf. Sign in with the password form: **magic link cannot complete on a desktop
+build**, because a browser has no way to hand the session back without a
+registered URI scheme.
 
 Tests need no credentials, no device and no network:
 
@@ -109,6 +124,13 @@ Edge Function validators (dependency-free TypeScript, run under Node):
 
 ```bash
 node --experimental-strip-types supabase/functions/_shared/schemas.test.mts
+```
+
+And an end-to-end check of everything except identification, against the running
+local stack — real auth, the real selects, the real recommender, no GUI:
+
+```bash
+dart run tool/check_recommender.dart
 ```
 
 ### Backend
@@ -164,6 +186,10 @@ behaviour exercised directly, because none of it is reachable from a Dart test:
 | A client `INSERT` straight into the catalog | `permission denied for table fragrances` |
 | The catalog itself, across users | shared and readable, as intended |
 
+`tool/check_recommender.dart` re-runs the read path, the profile and the
+recommender against that stack on demand, and would catch the PostgREST column
+list drifting from the row mapper — which no unit test would.
+
 That run found a real bug that no unit test could: **RLS policies alone do not
 grant table access.** Every table had RLS and policies and no `GRANT`, so the
 first real read failed with `permission denied for table fragrances` — the
@@ -178,11 +204,12 @@ record).
 
 Stated plainly, because the interesting parts are finished and these are not.
 
-- **No hosted backend.** The schema is verified — all three migrations apply
-  cleanly to a local Supabase stack, and the behaviour below was exercised
-  against a real Postgres (see *Verified against a live database*). But nothing
-  is deployed to a hosted project, so **no scan has completed end to end** and
-  the Edge Functions have never run against the live Anthropic API.
+- **Identification has never run.** It needs an `ANTHROPIC_API_KEY`, and there
+  isn't one — so `identify`, `enrich` and `suggest` have never been called, and
+  **identification accuracy is unmeasured**. The eval set is staged and waiting
+  (7 verified photos in `eval/`); the harness runs the moment a key exists.
+- **No hosted backend.** Everything runs against `supabase start`. Nothing is
+  deployed.
 - **Identification accuracy is unmeasured.** The harness exists
   ([`tool/eval_identify.dart`](tool/eval_identify.dart), graded through the same
   normalisation the app uses) but needs a photo set. Until it runs, this README

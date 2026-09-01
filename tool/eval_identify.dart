@@ -148,6 +148,7 @@ class _Result {
     required this.top3,
     required this.brand,
     required this.concentration,
+    this.viaGenderVariant = false,
     this.errored = false,
     this.detail = '',
   });
@@ -160,6 +161,11 @@ class _Result {
   final bool top3;
   final bool brand;
   final bool concentration;
+
+  /// Matched only after allowing a gender marker to differ. Reported separately
+  /// so the headline number never hides a normalisation judgement call.
+  final bool viaGenderVariant;
+
   final bool errored;
   final String detail;
 
@@ -197,21 +203,44 @@ _Result _grade(String file, FragranceKey expected, Map<String, dynamic> body) {
       .toList();
 
   final first = keys.first;
+
+  // A gender marker printed on the bottle is genuinely optional in the name:
+  // `Acqua di Giò` and `Acqua di Giò Pour Homme` are the same fragrance, and
+  // `identity.dart` deliberately does not merge them (that rule exists to keep
+  // Aventus apart from Aventus for Her). Counting the shorter answer as a miss
+  // would measure the normalisation policy rather than the identification.
+  bool matches(FragranceKey k) =>
+      k == expected || genderVariantOf(k, expected);
+
+  final viaVariant = !keys.any((k) => k == expected) && keys.any(matches);
+
   return _Result(
     file: file,
     declined: false,
-    top1: first == expected,
-    top3: keys.contains(expected),
+    top1: matches(first),
+    top3: keys.any(matches),
     brand: keys.any((k) => k.brand == expected.brand),
-    // Judged only on the candidate that got the NAME right — otherwise a
-    // scan that identified the wrong fragrance but happened to say "edp"
-    // would count as a concentration hit.
+    // ---------------------------------------------------------------------
+    // Judged ONLY on the candidate that got brand and name right — otherwise a
+    // scan that identified the wrong fragrance but happened to say "edp" would
+    // score as a concentration hit.
+    //
+    // And note what the manifest records: the strength LEGIBLE IN THE
+    // PHOTOGRAPH, not the strength of the product. Several of these bottles do
+    // not print it, so the expected value is `unknown` and a model that answers
+    // `unknown` is correct. Recording the product's real strength instead would
+    // penalise the honest answer and push the prompt toward guessing — the one
+    // failure this whole design exists to avoid.
+    // ---------------------------------------------------------------------
     concentration: keys.any(
       (k) => k.brand == expected.brand &&
-          k.name == expected.name &&
+          matches(k) &&
           k.concentration == expected.concentration,
     ),
-    detail: first == expected ? '' : ' — got ${first.value}, want ${expected.value}',
+    viaGenderVariant: viaVariant,
+    detail: matches(first)
+        ? (viaVariant ? ' — gender variant' : '')
+        : ' — got ${first.value}, want ${expected.value}',
   );
 }
 
@@ -278,9 +307,14 @@ void _report(List<_Result> results) {
         'concentration      ${pct(attempted.where((r) => r.concentration).length)}'
         '   strength right on the right fragrance')
     ..writeln('')
+    ..writeln('variant matches     ${attempted.where((r) => r.viaGenderVariant).length}'
+        '   counted correct, differing only by a gender marker')
+    ..writeln('')
     ..writeln('Graded through buildFragranceKey, so a different spelling of the')
     ..writeln('same fragrance counts as correct. top-3 is the UX number: the')
-    ..writeln('confirm sheet shows a shortlist and the user picks.');
+    ..writeln('confirm sheet shows a shortlist and the user picks. Expected')
+    ..writeln('concentrations are what is LEGIBLE in each photo, so answering')
+    ..writeln('"unknown" to an unprinted strength scores as correct.');
 
   final misses = attempted.where((r) => !r.top3).toList();
   if (misses.isNotEmpty) {
