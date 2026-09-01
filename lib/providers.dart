@@ -71,6 +71,18 @@ final tasteProfileProvider = Provider<AsyncValue<TasteProfile>>((ref) {
   );
 });
 
+/// Below this many usable catalog rows, ask `suggest` for more names.
+///
+/// Once the catalog is real this never fires again, so the cold-start cost is
+/// paid once across all users rather than per person.
+const coldStartCatalogFloor = 40;
+
+/// Hard cap on how many proposed candidates are resolved in one go.
+///
+/// Each miss against the catalog costs an `enrich` call, so this is the ceiling
+/// on what one tap of Discover can spend. See the comment at the call site.
+const coldStartResolveLimit = 8;
+
 /// Recommendations, grouped by strategy.
 ///
 /// ---------------------------------------------------------------------------
@@ -109,15 +121,47 @@ final recommendationsProvider =
   // Ask for more names only when the catalog cannot support a real comparison.
   // The threshold is deliberately low: once the catalog is real, this stops
   // costing anything.
-  if (pool.length < 40) {
+  if (pool.length < coldStartCatalogFloor) {
     try {
       final proposed = await scan.suggest(
         profileText: renderProfileForModel(profile, items),
         ownedNames: items.map((i) => i.fragrance.displayName).toList(),
       );
-      for (final candidate in proposed.take(12)) {
-        final resolved = await scan.resolveToCatalog(candidate);
-        if (!dismissed.contains(resolved.id)) pool.add(resolved);
+
+      // ---------------------------------------------------------------------
+      // CONCURRENTLY, AND CAPPED. Both halves of that were learned by watching
+      // the function log on a first run.
+      //
+      // This loop used to be sequential over 12 candidates, and each candidate
+      // that misses the catalog costs an `enrich` call. The log showed
+      // `suggest` followed by enrich after enrich roughly seven seconds apart:
+      // about ninety seconds of spinner on a first open, and a dozen model
+      // calls billed to whoever tapped Discover first.
+      //
+      // Awaiting them together turns that into roughly one round trip. The cap
+      // bounds the worst case rather than trusting the model to be brief, and
+      // it is deliberately smaller than what `suggest` may return — a pool of
+      // this size is already plenty for the scoring to have something to rank.
+      //
+      // Nothing is lost by capping: the catalog is shared, so the next person
+      // to want these rows finds them already there and pays nothing.
+      // ---------------------------------------------------------------------
+      final resolved = await Future.wait(
+        proposed.take(coldStartResolveLimit).map((candidate) async {
+          try {
+            return await scan.resolveToCatalog(candidate);
+          } catch (_) {
+            // One bad candidate must not lose the other eleven.
+            return null;
+          }
+        }),
+      );
+
+      for (final fragrance in resolved) {
+        if (fragrance == null) continue;
+        if (dismissed.contains(fragrance.id)) continue;
+        if (pool.any((f) => f.id == fragrance.id)) continue;
+        pool.add(fragrance);
       }
     } on ScanException {
       // A cold-start failure is not a screen-level error: whatever the catalog
