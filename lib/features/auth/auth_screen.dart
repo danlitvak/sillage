@@ -1,5 +1,3 @@
-import 'package:flutter/foundation.dart'
-    show TargetPlatform, defaultTargetPlatform, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' show AuthException;
@@ -8,25 +6,28 @@ import '../../providers.dart';
 import '../../theme/theme.dart';
 import '../../widgets/common.dart';
 
-/// Sign in, two ways.
+/// Sign in, two ways — password by default, magic link one tap away.
 ///
 /// =============================================================================
-/// WHY THERE IS A PASSWORD OPTION AT ALL
+/// WHY PASSWORD IS THE DEFAULT DESPITE BEING THE WORSE FLOW
 /// =============================================================================
-/// Magic link is the nicer flow and it is the default on mobile — no password to
-/// handle, store, or get wrong (the `sayable-beta` pattern).
+/// Magic link is nicer: nothing to handle, store, or get wrong (the
+/// `sayable-beta` pattern). It is also the one that breaks first here, for two
+/// independent reasons:
 ///
-/// But it cannot complete on a DESKTOP build. The link opens in a browser, and a
-/// browser has no way to hand the session back to a Windows app unless a custom
-/// URI scheme is registered and the app happens to be running to receive it.
-/// Windows is this project's development harness — an emulator's camera cannot
-/// photograph a bottle — so an auth flow that only works on a phone would mean
-/// the harness could not sign in at all.
+///   NO SMTP.     Supabase's built-in sender is throttled to a handful of
+///                messages an hour. Fine for one developer; the moment several
+///                people sign up at once they tap "Send sign-in link", nothing
+///                arrives, and the screen offers no way forward.
+///   NO DESKTOP.  A link opens a browser, and a browser cannot hand the session
+///                back to a Windows app without a registered URI scheme. Windows
+///                is this project's development harness, so an auth flow that
+///                only works on a phone would lock the harness out entirely.
 ///
-/// Both are offered on every platform rather than branching: the desktop case is
-/// what forced the second path, but plenty of people simply prefer a password,
-/// and one screen that behaves the same everywhere is easier to reason about
-/// than two.
+/// Both paths are offered on every platform rather than branching by target: one
+/// screen that behaves the same everywhere is easier to reason about, and plenty
+/// of people simply prefer a password. Flip the default back once a real sender
+/// (Resend) is configured.
 class AuthScreen extends ConsumerStatefulWidget {
   const AuthScreen({super.key});
 
@@ -41,10 +42,21 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
   String? _error;
   bool _sent = false;
 
-  /// Password is the default on desktop, where a magic link cannot complete.
-  bool _usePassword = !kIsWeb &&
-      defaultTargetPlatform != TargetPlatform.android &&
-      defaultTargetPlatform != TargetPlatform.iOS;
+  /// Password is the default EVERYWHERE, for now.
+  ///
+  /// Not because it is the nicer flow — magic link is — but because magic link
+  /// depends on email actually arriving, and this project has not configured an
+  /// SMTP provider. Supabase's built-in sender is throttled to a handful of
+  /// messages an hour, which is fine for one developer and breaks the moment
+  /// several people sign up at once: they tap "Send sign-in link", nothing
+  /// arrives, and there is no way forward from that screen.
+  ///
+  /// On desktop it would fail regardless — a browser cannot hand the session
+  /// back to a Windows app without a registered URI scheme.
+  ///
+  /// Magic link stays one tap away and should become the default again once a
+  /// real sender (Resend) is wired up.
+  bool _usePassword = true;
 
   @override
   void dispose() {

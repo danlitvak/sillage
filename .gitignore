@@ -27,3 +27,6 @@ supabase/.temp/
 # only meaningful alongside them. The example manifest IS tracked.
 eval/photos/
 eval/manifest.json
+
+# Hosted database password, generated locally.
+.supabase-db-password.local
