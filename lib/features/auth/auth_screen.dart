@@ -1,3 +1,42 @@
+/// Sign in, or create an account — two explicit paths, never guessed.
+///
+/// =============================================================================
+/// WHY THESE ARE SEPARATE, AND WHY THEY USED NOT TO BE
+/// =============================================================================
+/// The first version had one button. It tried to sign in, and if that failed
+/// it created the account — on the theory that a person knows their email
+/// address, not whether this app has seen it before. That theory was wrong in
+/// two ways, both found by the app's own author on a second device:
+///
+///   1. Supabase returns the SAME error for "no such account" and "wrong
+///      password", on purpose, so callers cannot enumerate users. The fallback
+///      therefore fired on every mistyped password, tried to sign up an address
+///      that already existed, and surfaced "User already registered" to
+///      someone who was simply trying to sign in.
+///
+///   2. Worse: a mistyped EMAIL on sign-in did not fail at all. It quietly
+///      created a fresh, empty account under the typo.
+///
+/// So: sign-in never creates anything, and its failure says what it is. Account
+/// creation is its own mode, one tap away, asks for the password twice, and says
+/// so when the address is already taken. Everyone knows which of the two they
+/// are.
+///
+/// The second password field is the defence against the failure that actually
+/// happened: a password typed once, wrong, and saved. It catches a TYPO. It does
+/// not catch FORGETTING — only a reset flow does that, and a reset needs the
+/// SMTP this project does not yet have. The create-account hint says so.
+///
+/// =============================================================================
+/// WHY PASSWORD AND NOT MAGIC LINK
+/// =============================================================================
+/// Magic link is nicer and it is the one that breaks first here: this project
+/// has no SMTP provider, and Supabase's built-in sender is throttled to a
+/// handful of messages an hour. It also cannot complete on a desktop build at
+/// all. The code path is kept behind [magicLinkEnabled] for the day Resend is
+/// wired up.
+library;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' show AuthException;
@@ -6,39 +45,10 @@ import '../../providers.dart';
 import '../../theme/theme.dart';
 import '../../widgets/common.dart';
 
-/// Sign in, two ways — password by default, magic link one tap away.
-///
-/// =============================================================================
-/// WHY PASSWORD IS THE DEFAULT DESPITE BEING THE WORSE FLOW
-/// =============================================================================
-/// Magic link is nicer: nothing to handle, store, or get wrong (the
-/// `sayable-beta` pattern). It is also the one that breaks first here, for two
-/// independent reasons:
-///
-///   NO SMTP.     Supabase's built-in sender is throttled to a handful of
-///                messages an hour. Fine for one developer; the moment several
-///                people sign up at once they tap "Send sign-in link", nothing
-///                arrives, and the screen offers no way forward.
-///   NO DESKTOP.  A link opens a browser, and a browser cannot hand the session
-///                back to a Windows app without a registered URI scheme. Windows
-///                is this project's development harness, so an auth flow that
-///                only works on a phone would lock the harness out entirely.
-///
-/// Both paths are offered on every platform rather than branching by target: one
-/// screen that behaves the same everywhere is easier to reason about, and plenty
-/// of people simply prefer a password. Flip the default back once a real sender
-/// (Resend) is configured.
-/// Whether to offer the magic-link path at all.
-///
-/// OFF, because an option that cannot work is worse than no option. With no
-/// SMTP provider configured, tapping "Email me a link instead" sends a request
-/// into Supabase's throttled built-in sender, shows "Check your email", and
-/// nothing ever arrives — leaving a tester on a dead-end screen with no way
-/// back to the flow that does work.
-///
-/// The code path is kept intact rather than deleted: turn this to `true` the
-/// day a real sender (Resend) is wired up, and the button returns.
+/// Whether to offer the magic-link path at all. See the header.
 const bool magicLinkEnabled = false;
+
+enum _Mode { signIn, createAccount }
 
 class AuthScreen extends ConsumerStatefulWidget {
   const AuthScreen({super.key});
@@ -50,101 +60,107 @@ class AuthScreen extends ConsumerStatefulWidget {
 class _AuthScreenState extends ConsumerState<AuthScreen> {
   final _email = TextEditingController();
   final _password = TextEditingController();
-  bool _sending = false;
+  final _confirm = TextEditingController();
+  _Mode _mode = _Mode.signIn;
+  bool _busy = false;
   String? _error;
-  bool _sent = false;
 
-  /// Password is the default EVERYWHERE, for now.
-  ///
-  /// Not because it is the nicer flow — magic link is — but because magic link
-  /// depends on email actually arriving, and this project has not configured an
-  /// SMTP provider. Supabase's built-in sender is throttled to a handful of
-  /// messages an hour, which is fine for one developer and breaks the moment
-  /// several people sign up at once: they tap "Send sign-in link", nothing
-  /// arrives, and there is no way forward from that screen.
-  ///
-  /// On desktop it would fail regardless — a browser cannot hand the session
-  /// back to a Windows app without a registered URI scheme.
-  ///
-  /// Magic link stays one tap away and should become the default again once a
-  /// real sender (Resend) is wired up.
-  bool _usePassword = true;
+  /// Set when creation succeeded but returned no session — confirmations are
+  /// on and the account is pending an email that may never arrive.
+  bool _pendingConfirmation = false;
 
   @override
   void dispose() {
     _email.dispose();
     _password.dispose();
+    _confirm.dispose();
     super.dispose();
   }
 
-  /// Signs in, falling back to creating the account when there is not one.
-  ///
-  /// One button rather than a sign-in/sign-up toggle: a person knows their email
-  /// address, not whether this particular app has seen it before, and making
-  /// them guess produces a wrong-looking error for a perfectly correct action.
-  Future<void> _passwordSignIn() async {
+  /// Everything that can be checked without a network. Ordered so the first
+  /// message a person sees is about the field they are most likely still on.
+  bool _validate() {
     final email = _email.text.trim();
-    final password = _password.text;
     if (email.isEmpty || !email.contains('@')) {
       setState(() => _error = 'Enter an email address.');
-      return;
+      return false;
     }
-    if (password.length < 6) {
+    if (_password.text.length < 6) {
       setState(() => _error = 'Passwords need at least six characters.');
-      return;
+      return false;
     }
+    if (_mode == _Mode.createAccount && _confirm.text != _password.text) {
+      setState(() => _error = "The two passwords don't match.");
+      return false;
+    }
+    return true;
+  }
 
+  Future<void> _submit() async {
+    if (!_validate()) return;
     setState(() {
-      _sending = true;
+      _busy = true;
       _error = null;
     });
 
     final auth = ref.read(supabaseProvider).auth;
+    final email = _email.text.trim();
+    final password = _password.text;
+
     try {
-      await auth.signInWithPassword(email: email, password: password);
-    } on AuthException catch (e) {
-      if (e.message.toLowerCase().contains('invalid login credentials')) {
-        try {
+      switch (_mode) {
+        case _Mode.signIn:
+          // Never falls through to creation. A failure here is a failure.
+          await auth.signInWithPassword(email: email, password: password);
+
+        case _Mode.createAccount:
           final res = await auth.signUp(email: email, password: password);
-          // A null session means confirmations are on and the account is
-          // pending — say so rather than leaving the screen looking stuck.
-          if (res.session == null && mounted) setState(() => _sent = true);
-        } on AuthException catch (e2) {
-          if (mounted) setState(() => _error = e2.message);
-        }
-      } else if (mounted) {
-        setState(() => _error = e.message);
+          if (res.session == null && mounted) {
+            setState(() => _pendingConfirmation = true);
+          }
       }
+    } on AuthException catch (e) {
+      if (!mounted) return;
+      setState(() => _error = _describe(e));
     } catch (e) {
-      if (mounted) setState(() => _error = '$e');
+      if (mounted) setState(() => _error = 'Something went wrong. $e');
     } finally {
-      if (mounted) setState(() => _sending = false);
+      if (mounted) setState(() => _busy = false);
     }
   }
 
-  Future<void> _send() async {
-    final email = _email.text.trim();
-    if (email.isEmpty || !email.contains('@')) {
-      setState(() => _error = 'Enter an email address.');
-      return;
+  /// One sentence per failure, written for the person at the keyboard.
+  ///
+  /// The wrong-password case is the most common error in any sign-in flow,
+  /// and it is the one the old single-button design turned into "User
+  /// already registered". It now says what it is, and mentions the one thing
+  /// that will actually bite: there is no reset yet.
+  String _describe(AuthException e) {
+    final m = e.message.toLowerCase();
+    if (m.contains('invalid login credentials')) {
+      return 'Wrong email or password. There is no password reset yet, so if '
+          'you have forgotten it, create a new account with a different '
+          'address.';
     }
-    setState(() {
-      _sending = true;
-      _error = null;
-    });
-    try {
-      await ref.read(supabaseProvider).auth.signInWithOtp(email: email);
-      if (mounted) setState(() => _sent = true);
-    } catch (e) {
-      if (mounted) setState(() => _error = 'Could not send the link. $e');
-    } finally {
-      if (mounted) setState(() => _sending = false);
+    if (m.contains('already registered') || m.contains('already exists')) {
+      return 'That email already has an account. Sign in instead.';
     }
+    if (m.contains('rate limit') || m.contains('too many')) {
+      return 'Too many attempts. Wait a minute and try again.';
+    }
+    return e.message;
   }
+
+  void _switchMode() => setState(() {
+        _mode = _mode == _Mode.signIn ? _Mode.createAccount : _Mode.signIn;
+        _error = null;
+        _confirm.clear();
+      });
 
   @override
   Widget build(BuildContext context) {
     final tokens = SillageTokens.of(context);
+    final creating = _mode == _Mode.createAccount;
 
     return Scaffold(
       body: SafeArea(
@@ -157,7 +173,8 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text('sillage', style: Theme.of(context).textTheme.headlineMedium),
+                  Text('sillage',
+                      style: Theme.of(context).textTheme.headlineMedium),
                   const SizedBox(height: Space.xs),
                   Text(
                     'The trail a fragrance leaves behind.',
@@ -165,37 +182,72 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                   ),
                   const SizedBox(height: Space.xxl),
 
-                  if (_sent) ...[
+                  if (_pendingConfirmation) ...[
                     Text('Check your email',
                         style: Theme.of(context).textTheme.titleMedium),
                     const SizedBox(height: Space.sm),
                     Text(
-                      'A sign-in link is on its way to ${_email.text.trim()}.',
+                      'A confirmation is on its way to ${_email.text.trim()}.',
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                     const SizedBox(height: Space.lg),
                     OutlinedButton(
-                      onPressed: () => setState(() => _sent = false),
+                      onPressed: () =>
+                          setState(() => _pendingConfirmation = false),
                       child: const Text('Use a different address'),
                     ),
                   ] else ...[
+                    // The mode is stated as a heading, not inferred from a
+                    // button label alone, so someone landing on the wrong one
+                    // sees it before they type.
+                    Text(
+                      creating ? 'Create an account' : 'Sign in',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: Space.md),
                     TextField(
                       controller: _email,
                       keyboardType: TextInputType.emailAddress,
                       autofillHints: const [AutofillHints.email],
                       decoration: const InputDecoration(labelText: 'Email'),
                       textInputAction: TextInputAction.next,
-                      onSubmitted: (_) =>
-                          _usePassword ? _passwordSignIn() : _send(),
                     ),
-                    if (_usePassword) ...[
+                    const SizedBox(height: Space.md),
+                    TextField(
+                      controller: _password,
+                      obscureText: true,
+                      autofillHints: [
+                        creating
+                            ? AutofillHints.newPassword
+                            : AutofillHints.password,
+                      ],
+                      decoration: InputDecoration(
+                        labelText: 'Password',
+                        // Only when creating: that is when the rule can still
+                        // be acted on, and when there is no reset to fall
+                        // back on. DESIGN.md — explain what changes a choice,
+                        // never what a control does.
+                        helperText: creating
+                            ? 'At least six characters. There is no reset yet, '
+                                'so keep it somewhere.'
+                            : null,
+                        helperMaxLines: 2,
+                      ),
+                      textInputAction: creating
+                          ? TextInputAction.next
+                          : TextInputAction.done,
+                      onSubmitted: (_) => creating ? null : _submit(),
+                    ),
+                    if (creating) ...[
                       const SizedBox(height: Space.md),
                       TextField(
-                        controller: _password,
+                        controller: _confirm,
                         obscureText: true,
-                        autofillHints: const [AutofillHints.password],
-                        decoration: const InputDecoration(labelText: 'Password'),
-                        onSubmitted: (_) => _passwordSignIn(),
+                        autofillHints: const [AutofillHints.newPassword],
+                        decoration: const InputDecoration(
+                          labelText: 'Confirm password',
+                        ),
+                        onSubmitted: (_) => _submit(),
                       ),
                     ],
                     const SizedBox(height: Space.md),
@@ -204,44 +256,32 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                       child: Column(
                         children: [
                           FilledButton(
-                            onPressed: _sending
-                                ? null
-                                : (_usePassword ? _passwordSignIn : _send),
+                            onPressed: _busy ? null : _submit,
                             child: Text(
-                              _usePassword ? 'Sign in' : 'Send sign-in link',
-                            ),
+                                creating ? 'Create account' : 'Sign in'),
                           ),
-                          // The busy signal sits under the control rather than
-                          // inside it: a spinner glyph needs horizontal room a
-                          // button label already occupies.
-                          if (_sending) const BusyBar(),
+                          // Under the control, not inside it: a spinner glyph
+                          // needs horizontal room a button label already has.
+                          if (_busy) const BusyBar(),
                         ],
+                      ),
+                    ),
+                    const SizedBox(height: Space.sm),
+                    TextButton(
+                      onPressed: _busy ? null : _switchMode,
+                      child: Text(
+                        creating
+                            ? 'I already have an account'
+                            : 'New here? Create an account',
                       ),
                     ),
                     if (magicLinkEnabled) ...[
                       const SizedBox(height: Space.sm),
                       TextButton(
-                        onPressed: _sending
-                            ? null
-                            : () => setState(() {
-                                  _usePassword = !_usePassword;
-                                  _error = null;
-                                }),
-                        child: Text(
-                          _usePassword
-                              ? 'Email me a link instead'
-                              : 'Use a password instead',
-                        ),
+                        onPressed: _busy ? null : _sendMagicLink,
+                        child: const Text('Email me a link instead'),
                       ),
                     ],
-                    const SizedBox(height: Space.md),
-                    // No password-reset flow exists yet, and it would need the
-                    // same SMTP this app does not have. Saying so is better
-                    // than a tester discovering it while locked out.
-                    Text(
-                      'No password reset yet — keep the one you pick.',
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
                   ],
 
                   if (_error != null) ...[
@@ -261,5 +301,26 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
         ),
       ),
     );
+  }
+
+  /// Kept intact behind [magicLinkEnabled]; see the header.
+  Future<void> _sendMagicLink() async {
+    final email = _email.text.trim();
+    if (email.isEmpty || !email.contains('@')) {
+      setState(() => _error = 'Enter an email address.');
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await ref.read(supabaseProvider).auth.signInWithOtp(email: email);
+      if (mounted) setState(() => _pendingConfirmation = true);
+    } catch (e) {
+      if (mounted) setState(() => _error = 'Could not send the link. $e');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 }
