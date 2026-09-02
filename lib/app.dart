@@ -12,6 +12,7 @@ import 'features/detail/fragrance_detail_screen.dart';
 import 'features/discover/discover_screen.dart';
 import 'features/profile/profile_screen.dart';
 import 'features/scan/scan_screen.dart';
+import 'features/share/shared_shelf_screen.dart';
 import 'features/taste/taste_screen.dart';
 import 'main.dart';
 import 'providers.dart';
@@ -40,6 +41,11 @@ final routerProvider = Provider<GoRouter>((ref) {
   return GoRouter(
     initialLocation: '/collection',
     redirect: (context, state) {
+      // A shared shelf is PUBLIC and must never bounce to the sign-in wall —
+      // the entire point is a link a friend can tap without an account. Checked
+      // before anything else so no future rule can accidentally gate it.
+      if (state.matchedLocation.startsWith('/s/')) return null;
+
       final signedIn = ref.read(currentUserProvider) != null;
       final atAuth = state.matchedLocation == '/auth';
       if (!signedIn) return atAuth ? null : '/auth';
@@ -51,6 +57,13 @@ final routerProvider = Provider<GoRouter>((ref) {
     refreshListenable: _AuthRefresh(ref),
     routes: [
       GoRoute(path: '/auth', builder: (_, _) => const AuthScreen()),
+      // Public. Outside the shell (no tab bar — a visitor has no tabs) and
+      // outside the auth redirect.
+      GoRoute(
+        path: '/s/:slug',
+        builder: (context, state) =>
+            SharedShelfScreen(slug: state.pathParameters['slug']!),
+      ),
       ShellRoute(
         builder: (context, state, child) => AppShell(child: child),
         routes: [

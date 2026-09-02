@@ -77,6 +77,18 @@ final profileProvider = FutureProvider<Map<String, dynamic>?>((ref) async {
   return ref.watch(repositoryProvider).loadProfile();
 });
 
+/// The current share slug, or null when the shelf is private.
+final shareSlugProvider = FutureProvider<String?>((ref) async {
+  ref.watch(currentUserProvider);
+  return ref.watch(repositoryProvider).currentShareSlug();
+});
+
+/// Someone else's shared shelf, by slug. Resolves without a session.
+final sharedShelfProvider =
+    FutureProvider.family<Map<String, dynamic>?, String>((ref, slug) async {
+  return ref.watch(repositoryProvider).loadSharedShelf(slug);
+});
+
 /// How many bottles have landed on the shelf since the user last looked at it.
 ///
 /// Deliberately NOT persisted. It answers "did something happen while I was

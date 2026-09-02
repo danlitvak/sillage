@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/models.dart';
@@ -47,6 +48,39 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       if (mounted) setState(() => _editing = false);
     } finally {
       if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  /// Builds the link from the page's own origin, so it is correct on every
+  /// deployment (and on localhost) without a hardcoded domain to go stale.
+  String _shareUrl(String slug) => '${Uri.base.origin}/#/s/$slug';
+
+  Future<void> _toggleSharing(bool on) async {
+    setState(() => _saving = true);
+    final repo = ref.read(repositoryProvider);
+    try {
+      if (on) {
+        await repo.shareShelf();
+      } else {
+        await repo.unshareShelf();
+      }
+      ref.invalidate(shareSlugProvider);
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _copy(String slug) async {
+    await Clipboard.setData(ClipboardData(text: _shareUrl(slug)));
+    if (mounted) {
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(const SnackBar(
+          content: Text('Link copied'),
+          duration: Duration(seconds: 2),
+          margin: EdgeInsets.fromLTRB(
+              Space.lg, 0, Space.lg, 60 + Space.bottomBarGutter),
+        ));
     }
   }
 
@@ -140,6 +174,17 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                 style: Theme.of(context).textTheme.bodySmall)
           else
             _Stats(profile: taste, items: items),
+
+          // ------------------------------------------------------------ share
+          const SizedBox(height: Space.xl),
+          const SectionHeading('Share your shelf'),
+          _Sharing(
+            slug: ref.watch(shareSlugProvider).valueOrNull,
+            busy: _saving,
+            url: _shareUrl,
+            onToggle: _toggleSharing,
+            onCopy: _copy,
+          ),
 
           // ----------------------------------------------------------- signout
           const SizedBox(height: Space.xxl),
@@ -287,6 +332,104 @@ class _Stat extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// The sharing control.
+///
+/// Off by default and revocable, and the copy says exactly what turning it on
+/// exposes — a link that needs no account is the kind of thing someone should
+/// understand before they create one, not after.
+class _Sharing extends StatelessWidget {
+  const _Sharing({
+    required this.slug,
+    required this.busy,
+    required this.url,
+    required this.onToggle,
+    required this.onCopy,
+  });
+
+  final String? slug;
+  final bool busy;
+  final String Function(String) url;
+  final Future<void> Function(bool) onToggle;
+  final Future<void> Function(String) onCopy;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = SillageTokens.of(context);
+    final on = slug != null;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(
+              horizontal: Space.lg, vertical: Space.sm),
+          decoration: BoxDecoration(
+            border: Border.all(color: tokens.border),
+            borderRadius: squareRadius,
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  on ? 'Anyone with the link can view' : 'Private',
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+              ),
+              Switch(
+                value: on,
+                onChanged: busy ? null : onToggle,
+                activeThumbColor: tokens.background,
+                activeTrackColor: tokens.foreground,
+              ),
+            ],
+          ),
+        ),
+        if (busy) const BusyBar(),
+
+        const SizedBox(height: Space.sm),
+        Text(
+          on
+              // Explains what the reader cannot infer: the shape of the
+              // exposure, and that revoking is real. Not a description of the
+              // switch — DESIGN.md, "nothing over-explained".
+              ? 'Your bottles, notes and ratings are visible to anyone holding '
+                  'this link, without an account. Your photos, your private '
+                  'notes and your email are not. Turning this off kills the '
+                  'link for good — turning it back on makes a new one.'
+              : 'Your shelf is visible only to you.',
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+
+        if (on) ...[
+          const SizedBox(height: Space.md),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(Space.md),
+            decoration: BoxDecoration(
+              border: Border.all(color: tokens.border),
+              color: tokens.surface,
+              borderRadius: squareRadius,
+            ),
+            child: SelectableText(
+              url(slug!),
+              style: Theme.of(context).textTheme.bodySmall,
+              maxLines: 1,
+            ),
+          ),
+          const SizedBox(height: Space.sm),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton(
+              onPressed: () => onCopy(slug!),
+              child: const Text('Copy link'),
+            ),
+          ),
+        ],
+      ],
     );
   }
 }

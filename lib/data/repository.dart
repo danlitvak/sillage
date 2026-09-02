@@ -258,6 +258,42 @@ class SillageRepository {
 
   Future<void> signOut() => _client.auth.signOut();
 
+  // ---------------------------------------------------------------------------
+  // SHARING
+  // ---------------------------------------------------------------------------
+  // All three go through SECURITY DEFINER functions rather than table access.
+  // See 20260902060000_shelf_sharing.sql for why the whole feature is one
+  // function instead of a set of policies.
+
+  /// Turns sharing on and returns the new slug.
+  ///
+  /// Always mints a NEW one, so re-enabling does not resurrect a link that was
+  /// previously revoked.
+  Future<String> shareShelf() => _client.rpc<String>('share_shelf');
+
+  Future<void> unshareShelf() => _client.rpc<void>('unshare_shelf');
+
+  /// The current slug, or null when sharing is off.
+  Future<String?> currentShareSlug() async {
+    final uid = userId;
+    if (uid == null) return null;
+    final rows =
+        await _client.from('profiles').select('share_slug').eq('id', uid).limit(1);
+    return rows.isEmpty ? null : rows.first['share_slug'] as String?;
+  }
+
+  /// Reads someone else's shared shelf. Works signed out — that is the point.
+  ///
+  /// Returns null for a slug that never existed OR was revoked; the function
+  /// deliberately cannot tell those apart.
+  Future<Map<String, dynamic>?> loadSharedShelf(String slug) async {
+    final data = await _client.rpc<dynamic>(
+      'get_shared_shelf',
+      params: {'p_slug': slug},
+    );
+    return data is Map ? data.cast<String, dynamic>() : null;
+  }
+
   // ===========================================================================
   // STORAGE
   // ===========================================================================
