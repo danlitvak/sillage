@@ -10,6 +10,7 @@ import 'features/auth/auth_screen.dart';
 import 'features/collection/collection_screen.dart';
 import 'features/detail/fragrance_detail_screen.dart';
 import 'features/discover/discover_screen.dart';
+import 'features/profile/profile_screen.dart';
 import 'features/scan/scan_screen.dart';
 import 'features/taste/taste_screen.dart';
 import 'main.dart';
@@ -64,6 +65,9 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
               path: '/discover',
               builder: (_, _) => const _Opaque(child: DiscoverScreen())),
+          GoRoute(
+              path: '/profile',
+              builder: (_, _) => const _Opaque(child: ProfileScreen())),
         ],
       ),
       // Detail is NOT a tab — it is pushed, so it carries a back control.
@@ -114,6 +118,7 @@ const _tabs = [
   (path: '/scan', label: 'Scan', icon: Icons.photo_camera_outlined),
   (path: '/taste', label: 'Taste', icon: Icons.insights_outlined),
   (path: '/discover', label: 'Discover', icon: Icons.explore_outlined),
+  (path: '/profile', label: 'You', icon: Icons.person_outline),
 ];
 
 class AppShell extends ConsumerWidget {

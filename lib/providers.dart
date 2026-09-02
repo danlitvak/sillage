@@ -71,6 +71,12 @@ final tasteProfileProvider = Provider<AsyncValue<TasteProfile>>((ref) {
   );
 });
 
+/// The signed-in user's profile row.
+final profileProvider = FutureProvider<Map<String, dynamic>?>((ref) async {
+  ref.watch(currentUserProvider);
+  return ref.watch(repositoryProvider).loadProfile();
+});
+
 /// How many bottles have landed on the shelf since the user last looked at it.
 ///
 /// Deliberately NOT persisted. It answers "did something happen while I was

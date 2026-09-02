@@ -191,6 +191,52 @@ void main() {
       handle.dispose();
     });
 
+    // ---------------------------------------------------------------------
+    // The real bar has FIVE tabs since the profile screen landed, and five
+    // cells at 390px is 78px each — three pixels over the label threshold.
+    // That margin is too thin to take on trust, so the real set is pumped at
+    // every viewport.
+    // ---------------------------------------------------------------------
+    List<TabSpec> realTabs() => [
+          for (final l in ['Shelf', 'Scan', 'Taste', 'Discover', 'You'])
+            TabSpec(label: l, icon: Icons.circle, onTap: () {}),
+        ];
+
+    for (final (name, size) in viewports) {
+      testWidgets('five real tabs do not overflow at $name', (tester) async {
+        await _pumpAt(
+          tester,
+          size,
+          _host(Align(
+            alignment: Alignment.bottomCenter,
+            child: SillageTabBar(tabs: realTabs(), selectedIndex: 0),
+          )),
+        );
+        expect(find.byIcon(Icons.circle), findsNWidgets(5));
+        final cells = find.byType(InkWell);
+        final first = tester.getSize(cells.at(0));
+        for (var i = 1; i < 5; i++) {
+          expect(tester.getSize(cells.at(i)).width, closeTo(first.width, 0.5));
+        }
+        expect(first.width * 5, closeTo(size.width, 1.0));
+      });
+    }
+
+    testWidgets('the longest label survives the tightest width that shows it',
+        (tester) async {
+      // 5 x 78 = 390: just past the threshold, so labels ARE drawn here and
+      // "Discover" is the one that would clip first.
+      await _pumpAt(
+        tester,
+        const Size(390, 844),
+        _host(Align(
+          alignment: Alignment.bottomCenter,
+          child: SillageTabBar(tabs: realTabs(), selectedIndex: 0),
+        )),
+      );
+      expect(find.text('Discover'), findsOneWidget);
+    });
+
     testWidgets('a badge draws over the icon without resizing the cell',
         (tester) async {
       final plain = <TabSpec>[

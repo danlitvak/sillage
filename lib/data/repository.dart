@@ -229,6 +229,36 @@ class SillageRepository {
   }
 
   // ===========================================================================
+  // PROFILE
+  // ===========================================================================
+
+  /// The signed-in user's profile row, created by the `handle_new_user`
+  /// trigger at sign-up. Null only if that trigger has not run yet.
+  Future<Map<String, dynamic>?> loadProfile() async {
+    final uid = userId;
+    if (uid == null) return null;
+    final rows =
+        await _client.from('profiles').select('id, display_name, created_at')
+            .eq('id', uid).limit(1);
+    return rows.isEmpty ? null : rows.first;
+  }
+
+  Future<void> updateDisplayName(String? name) async {
+    final uid = userId;
+    if (uid == null) throw StateError('not signed in');
+    final trimmed = name?.trim();
+    await _client.from('profiles').update({
+      // Empty is stored as null, not as "", so "has the user named themselves"
+      // is one check rather than two.
+      'display_name': (trimmed == null || trimmed.isEmpty) ? null : trimmed,
+    }).eq('id', uid);
+  }
+
+  String? get email => _client.auth.currentUser?.email;
+
+  Future<void> signOut() => _client.auth.signOut();
+
+  // ===========================================================================
   // STORAGE
   // ===========================================================================
 
