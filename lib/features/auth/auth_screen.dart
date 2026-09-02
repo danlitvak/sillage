@@ -28,6 +28,18 @@ import '../../widgets/common.dart';
 /// screen that behaves the same everywhere is easier to reason about, and plenty
 /// of people simply prefer a password. Flip the default back once a real sender
 /// (Resend) is configured.
+/// Whether to offer the magic-link path at all.
+///
+/// OFF, because an option that cannot work is worse than no option. With no
+/// SMTP provider configured, tapping "Email me a link instead" sends a request
+/// into Supabase's throttled built-in sender, shows "Check your email", and
+/// nothing ever arrives — leaving a tester on a dead-end screen with no way
+/// back to the flow that does work.
+///
+/// The code path is kept intact rather than deleted: turn this to `true` the
+/// day a real sender (Resend) is wired up, and the button returns.
+const bool magicLinkEnabled = false;
+
 class AuthScreen extends ConsumerStatefulWidget {
   const AuthScreen({super.key});
 
@@ -206,19 +218,29 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                         ],
                       ),
                     ),
-                    const SizedBox(height: Space.sm),
-                    TextButton(
-                      onPressed: _sending
-                          ? null
-                          : () => setState(() {
-                                _usePassword = !_usePassword;
-                                _error = null;
-                              }),
-                      child: Text(
-                        _usePassword
-                            ? 'Email me a link instead'
-                            : 'Use a password instead',
+                    if (magicLinkEnabled) ...[
+                      const SizedBox(height: Space.sm),
+                      TextButton(
+                        onPressed: _sending
+                            ? null
+                            : () => setState(() {
+                                  _usePassword = !_usePassword;
+                                  _error = null;
+                                }),
+                        child: Text(
+                          _usePassword
+                              ? 'Email me a link instead'
+                              : 'Use a password instead',
+                        ),
                       ),
+                    ],
+                    const SizedBox(height: Space.md),
+                    // No password-reset flow exists yet, and it would need the
+                    // same SMTP this app does not have. Saying so is better
+                    // than a tester discovering it while locked out.
+                    Text(
+                      'No password reset yet — keep the one you pick.',
+                      style: Theme.of(context).textTheme.bodySmall,
                     ),
                   ],
 
