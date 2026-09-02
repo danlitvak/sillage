@@ -15,6 +15,52 @@
 // row is visible to every future scan of the same bottle.
 
 // =============================================================================
+// STRING HYGIENE
+// =============================================================================
+
+/**
+ * Strips tool-call markup that has leaked INTO a string value, and returns a
+ * trimmed, bounded string.
+ *
+ * Seen in production, on a bottle the model could not read: `label_text` came
+ * back as
+ *
+ *     </parameter>
+ *     <parameter name="legible">false
+ *
+ * and was rendered to the user verbatim under "READ FROM THE BOTTLE". The
+ * model had nothing to put in the field, emitted an empty string, and the
+ * serialisation boundary swallowed the tags of the NEXT parameter into the
+ * value. `strict: true` is no defence here — a string containing angle
+ * brackets is still a schema-valid string — which is exactly why this layer
+ * exists on top of it.
+ *
+ * Applied to EVERY string read from a model response, not just the one that
+ * failed, because the same boundary exists after every empty string field.
+ */
+export function cleanModelString(
+  raw: unknown,
+  maxLength: number,
+  opts: { overflow: "truncate" | "reject" } = { overflow: "truncate" },
+): string {
+  if (typeof raw !== "string") return "";
+  let s = raw;
+  // The markup itself, in either namespace, open or close, with attributes.
+  s = s.replace(/<\/?(?:antml:)?(?:parameter|invoke|function_calls)[^>]*>/g, " ");
+  // Whitespace the tags leave behind, and any bare JSON literal that was
+  // really the next field's value rather than this one's.
+  s = s.replace(/\s+/g, " ").trim();
+  if (s === "true" || s === "false" || s === "null") return "";
+  if (s.length <= maxLength) return s;
+  // Two kinds of field, two kinds of overflow. Free text (a label, a reason)
+  // is CUT to fit: losing its tail costs nothing. An identity field (a brand,
+  // a name, a note) is REJECTED: a 500-character "brand" is not a long brand,
+  // it is garbage, and truncating it would mint a junk catalog row that every
+  // later scan of the same bottle inherits.
+  return opts.overflow === "reject" ? "" : s.slice(0, maxLength);
+}
+
+// =============================================================================
 // IDENTIFY
 // =============================================================================
 
@@ -146,15 +192,15 @@ export function validateIdentify(
   if (typeof o.legible !== "boolean") return { ok: false, reason: "legible missing" };
   if (!Array.isArray(o.candidates)) return { ok: false, reason: "candidates missing" };
 
-  const labelText = typeof o.label_text === "string" ? o.label_text.slice(0, 500) : "";
+  const labelText = cleanModelString(o.label_text, 500);
 
   const candidates: Candidate[] = [];
   for (const item of o.candidates.slice(0, MAX_CANDIDATES_EXAMINED)) {
     if (typeof item !== "object" || item === null) continue;
     const c = item as Record<string, unknown>;
 
-    const brand = typeof c.brand === "string" ? c.brand.trim() : "";
-    const name = typeof c.name === "string" ? c.name.trim() : "";
+    const brand = cleanModelString(c.brand, 120, { overflow: "reject" });
+    const name = cleanModelString(c.name, 200, { overflow: "reject" });
     // A candidate missing either half cannot produce a catalog key, so it is
     // dropped rather than written as a partial row.
     if (!brand || !name) continue;
@@ -178,7 +224,7 @@ export function validateIdentify(
       name,
       concentration,
       confidence,
-      reasoning: typeof c.reasoning === "string" ? c.reasoning.slice(0, 300) : "",
+      reasoning: cleanModelString(c.reasoning, 300),
     });
   }
 
@@ -334,8 +380,8 @@ export function validateEnrich(
     for (const item of o.notes.slice(0, MAX_NOTES)) {
       if (typeof item !== "object" || item === null) continue;
       const n = item as Record<string, unknown>;
-      const display = typeof n.name === "string" ? n.name.trim() : "";
-      if (!display || display.length > 80) continue;
+      const display = cleanModelString(n.name, 80, { overflow: "reject" });
+      if (!display) continue;
       const tier =
         typeof n.tier === "string" && (NOTE_TIERS as readonly string[]).includes(n.tier)
           ? n.tier
@@ -358,8 +404,8 @@ export function validateEnrich(
         display_name: display,
         tier,
         position,
-        family: typeof n.family === "string" && n.family.trim()
-          ? canonicalise(n.family)
+        family: cleanModelString(n.family, 60)
+          ? canonicalise(cleanModelString(n.family, 60))
           : null,
       });
     }
@@ -371,8 +417,8 @@ export function validateEnrich(
     for (const item of o.accords.slice(0, 12)) {
       if (typeof item !== "object" || item === null) continue;
       const a = item as Record<string, unknown>;
-      const display = typeof a.name === "string" ? a.name.trim() : "";
-      if (!display || display.length > 60) continue;
+      const display = cleanModelString(a.name, 60, { overflow: "reject" });
+      if (!display) continue;
       const key = canonicalise(display);
       if (!key || seenAccords.has(key)) continue;
       seenAccords.add(key);
@@ -390,10 +436,7 @@ export function validateEnrich(
     value: {
       known: true,
       release_year: year,
-      perfumer:
-        typeof o.perfumer === "string" && o.perfumer.trim()
-          ? o.perfumer.trim().slice(0, 120)
-          : null,
+      perfumer: cleanModelString(o.perfumer, 120) || null,
       notes,
       accords,
     },
@@ -464,10 +507,9 @@ export function validateSuggest(
   for (const item of o.candidates.slice(0, 15)) {
     if (typeof item !== "object" || item === null) continue;
     const c = item as Record<string, unknown>;
-    const brand = typeof c.brand === "string" ? c.brand.trim() : "";
-    const name = typeof c.name === "string" ? c.name.trim() : "";
+    const brand = cleanModelString(c.brand, 120, { overflow: "reject" });
+    const name = cleanModelString(c.name, 200, { overflow: "reject" });
     if (!brand || !name) continue;
-    if (brand.length > 120 || name.length > 200) continue;
 
     const concentration =
       typeof c.concentration === "string" &&
@@ -483,7 +525,7 @@ export function validateSuggest(
       brand,
       name,
       concentration,
-      why: typeof c.why === "string" ? c.why.slice(0, 300) : "",
+      why: cleanModelString(c.why, 300),
     });
   }
   return { ok: true, value: out };

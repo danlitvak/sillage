@@ -19,6 +19,7 @@
 import assert from "node:assert/strict";
 import {
   canonicalise,
+  cleanModelString,
   validateEnrich,
   validateIdentify,
   validateSuggest,
@@ -402,6 +403,91 @@ test("a runaway candidate list is capped at 15", () => {
 test("a missing candidates array is rejected", () => {
   assert.equal(validateSuggest({}).ok, false);
   assert.equal(validateSuggest(null).ok, false);
+});
+
+// =============================================================================
+group("tool-call markup leaking into string values (seen in production)");
+
+// The exact payload a user photographed: label_text carrying the closing tag of
+// its own parameter and the opening tag of the next, rendered verbatim under
+// "READ FROM THE BOTTLE". Assembled from fragments because a literal tag inside
+// this source file is itself swallowed by the same serialisation boundary.
+const CLOSE_TAG = "<" + "/" + "antml:" + "parameter" + ">";
+const OPEN_TAG = "<" + "antml:" + "parameter" + ' name="legible"' + ">";
+// String.fromCharCode rather than an escape: this file is written through
+// several layers of quoting, and an escaped newline has already been eaten
+// once on the way in.
+const LEAKED_LABEL = CLOSE_TAG + String.fromCharCode(10) + OPEN_TAG + "false";
+
+test("the leaked label_text is stripped to empty, not shown to the user", () => {
+  assert.equal(cleanModelString(LEAKED_LABEL, 500), "");
+});
+
+test("a bare trailing JSON literal is dropped too", () => {
+  assert.equal(cleanModelString("false", 500), "");
+  assert.equal(cleanModelString("  true  ", 500), "");
+  assert.equal(cleanModelString("null", 500), "");
+});
+
+test("genuine label text with the markup wrapped around it survives", () => {
+  assert.equal(cleanModelString("SAUVAGE " + CLOSE_TAG + " Dior", 500), "SAUVAGE Dior");
+});
+
+test("the un-namespaced form is stripped as well", () => {
+  const open = "<" + "parameter" + ' name="x"' + ">";
+  const close = "<" + "/" + "parameter" + ">";
+  assert.equal(cleanModelString(open + "Bleu" + close, 500), "Bleu");
+});
+
+test("ordinary text is untouched", () => {
+  assert.equal(cleanModelString("N°5 CHANEL PARIS EAU DE PARFUM", 500),
+    "N°5 CHANEL PARIS EAU DE PARFUM");
+});
+
+test("free text is truncated on overflow; identity fields are rejected", () => {
+  const long = "x".repeat(50);
+  assert.equal(cleanModelString(long, 10).length, 10);
+  assert.equal(cleanModelString(long, 10, { overflow: "reject" }), "");
+});
+
+test("validateIdentify applies it to label_text", () => {
+  const r = validateIdentify({
+    label_text: LEAKED_LABEL,
+    legible: false,
+    candidates: [
+      { brand: "Britney Spears", name: "Curious", concentration: "unknown",
+        confidence: 0.35, reasoning: "shape" },
+    ],
+  });
+  assert.equal(r.ok, true);
+  assert.equal(r.ok && r.value.label_text, "");
+  assert.equal(r.ok && r.value.candidates.length, 1);
+});
+
+test("and to every candidate string, so a leak cannot become a catalog key", () => {
+  const r = validateIdentify({
+    label_text: "",
+    legible: true,
+    candidates: [
+      { brand: "Dior" + CLOSE_TAG, name: OPEN_TAG + "Sauvage",
+        concentration: "edp", confidence: 0.9, reasoning: CLOSE_TAG },
+    ],
+  });
+  const c = r.ok ? r.value.candidates[0] : undefined;
+  assert.equal(c?.brand, "Dior");
+  assert.equal(c?.name, "Sauvage");
+  assert.equal(c?.reasoning, "");
+});
+
+test("enrich note names are cleaned before they become vocabulary", () => {
+  const r = validateEnrich({
+    known: true, release_year: null, perfumer: CLOSE_TAG,
+    notes: [{ name: "Bergamot" + CLOSE_TAG, tier: "top", position: 0, family: null }],
+    accords: [],
+  });
+  assert.equal(r.ok && r.value.notes[0].display_name, "Bergamot");
+  assert.equal(r.ok && r.value.notes[0].key, "bergamot");
+  assert.equal(r.ok && r.value.perfumer, null);
 });
 
 // =============================================================================
