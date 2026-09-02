@@ -40,19 +40,29 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
   bool _busy = false;
   String? _error;
 
-  /// Whether this platform can open a camera at all.
+  /// Whether to offer a camera button at all.
   ///
-  /// `image_picker` has no camera implementation on Windows, Linux or the web,
-  /// and asking for one there throws. Checked rather than caught, so the button
-  /// simply is not offered instead of failing when tapped.
+  /// ---------------------------------------------------------------------------
+  /// WEB COUNTS, AND EXCLUDING IT WAS A BUG
+  /// ---------------------------------------------------------------------------
+  /// This used to require `!kIsWeb`, on the assumption that a browser has no
+  /// camera. That is wrong on a phone: `image_picker` on web renders a file
+  /// input, and for `ImageSource.camera` it sets the HTML `capture` attribute,
+  /// which is exactly what makes iOS and Android open the camera and ask for
+  /// permission. Excluding web meant the deployed build — the only one an
+  /// iPhone can run — never offered a camera and never triggered the permission
+  /// prompt at all.
+  ///
+  /// On desktop web `capture` is simply ignored and the file picker opens,
+  /// which is a fair outcome. On desktop NATIVE (Windows) there is no camera
+  /// implementation and asking would throw, so that stays excluded.
   ///
   /// Uses `defaultTargetPlatform` rather than `dart:io`'s `Platform`: importing
-  /// `dart:io` at all breaks the web build, and web is one of this project's
-  /// three targets.
+  /// `dart:io` at all breaks the web build.
   bool get _hasCamera =>
-      !kIsWeb &&
-      (defaultTargetPlatform == TargetPlatform.android ||
-          defaultTargetPlatform == TargetPlatform.iOS);
+      kIsWeb ||
+      defaultTargetPlatform == TargetPlatform.android ||
+      defaultTargetPlatform == TargetPlatform.iOS;
 
   Future<void> _pick(ImageSource source) async {
     setState(() => _error = null);

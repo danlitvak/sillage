@@ -60,24 +60,43 @@ class PreparedPhoto {
 /// bottle is common from a screenshot and costs the same upload time as a large
 /// photograph.
 Future<PreparedPhoto> preparePhoto(Uint8List input) async {
-  // Native decode with a target size — the codec does the downscale itself, so
-  // a full-resolution bitmap is never materialised.
-  final descriptor = await ui.ImageDescriptor.encoded(
-    await ui.ImmutableBuffer.fromUint8List(input),
-  );
+  // ---------------------------------------------------------------------------
+  // WHY THIS PROBES FIRST INSTEAD OF ASKING FOR THE SIZE
+  //
+  // The obvious version reads the dimensions from `ui.ImageDescriptor.encoded`
+  // and instantiates the codec straight at the target size — one decode, no
+  // full-resolution bitmap. That is what this function used to do, and it
+  // throws on Flutter web:
+  //
+  //   Unsupported operation: ImageDescriptor.width is not supported on web.
+  //
+  // Which meant every scan on the web build — the build the app is actually
+  // deployed as, and the only one an iPhone can run — failed at the first step.
+  // It was never caught because the eval harness resizes with `package:image`
+  // instead, and no test could see it: `flutter test` runs on the VM, where
+  // ImageDescriptor works fine.
+  //
+  // `instantiateImageCodec` IS supported everywhere, so the image is decoded
+  // once at native size purely to learn its dimensions, then decoded again at
+  // the target size when it is too big. The second decode is the cost of
+  // portability; an image already within the bound pays nothing extra.
+  // ---------------------------------------------------------------------------
+  var codec = await ui.instantiateImageCodec(input);
+  var image = (await codec.getNextFrame()).image;
 
-  final (targetWidth, targetHeight) = _fit(
-    descriptor.width,
-    descriptor.height,
-    maxImageEdge,
-  );
+  final (targetWidth, targetHeight) =
+      _fit(image.width, image.height, maxImageEdge);
 
-  final codec = await descriptor.instantiateCodec(
-    targetWidth: targetWidth,
-    targetHeight: targetHeight,
-  );
-  final frame = await codec.getNextFrame();
-  final image = frame.image;
+  if (targetWidth != image.width || targetHeight != image.height) {
+    image.dispose();
+    codec.dispose();
+    codec = await ui.instantiateImageCodec(
+      input,
+      targetWidth: targetWidth,
+      targetHeight: targetHeight,
+    );
+    image = (await codec.getNextFrame()).image;
+  }
 
   try {
     final rgba = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
@@ -105,7 +124,7 @@ Future<PreparedPhoto> preparePhoto(Uint8List input) async {
     );
   } finally {
     image.dispose();
-    descriptor.dispose();
+    codec.dispose();
   }
 }
 
