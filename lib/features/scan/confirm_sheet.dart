@@ -35,13 +35,16 @@ import '../../theme/theme.dart';
 import '../../widgets/common.dart';
 
 
-Future<void> showConfirmSheet({
+/// Returns the DISPLAY NAME of whatever landed on the shelf, or null if the
+/// user backed out. The caller uses it to confirm the add — the scan flow ends
+/// on the Scan tab, so without a word from here nothing visibly happened.
+Future<String?> showConfirmSheet({
   required BuildContext context,
   required WidgetRef ref,
   required ScanResult result,
   required Uint8List photoBytes,
 }) {
-  return showModalBottomSheet<void>(
+  return showModalBottomSheet<String>(
     context: context,
     isScrollControlled: true,
     builder: (context) => _ConfirmSheet(result: result, photoBytes: photoBytes),
@@ -99,7 +102,8 @@ class _ConfirmSheetState extends ConsumerState<_ConfirmSheet> {
 
       ref.invalidate(collectionProvider);
       ref.invalidate(catalogProvider);
-      if (mounted) Navigator.of(context).pop();
+      ref.read(unseenShelfCountProvider.notifier).increment();
+      if (mounted) Navigator.of(context).pop(fragrance.displayName);
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -332,11 +336,11 @@ class _CandidateTile extends StatelessWidget {
 /// Always reachable, not only as a fallback: identification declining to guess
 /// is a designed outcome, so the path it hands the user to has to be a real
 /// screen rather than an apology.
-Future<void> showManualEntrySheet({
+Future<String?> showManualEntrySheet({
   required BuildContext context,
   required WidgetRef ref,
 }) {
-  return showModalBottomSheet<void>(
+  return showModalBottomSheet<String>(
     context: context,
     isScrollControlled: true,
     builder: (context) => const _ManualEntrySheet(),
@@ -390,7 +394,8 @@ class _ManualEntrySheetState extends ConsumerState<_ManualEntrySheet> {
       await repo.addToCollection(fragranceId: fragrance.id);
       ref.invalidate(collectionProvider);
       ref.invalidate(catalogProvider);
-      if (mounted) Navigator.of(context).pop();
+      ref.read(unseenShelfCountProvider.notifier).increment();
+      if (mounted) Navigator.of(context).pop(fragrance.displayName);
     } catch (e) {
       if (mounted) {
         setState(() {

@@ -71,6 +71,30 @@ final tasteProfileProvider = Provider<AsyncValue<TasteProfile>>((ref) {
   );
 });
 
+/// How many bottles have landed on the shelf since the user last looked at it.
+///
+/// Deliberately NOT persisted. It answers "did something happen while I was
+/// looking elsewhere in this session", and a badge that survives a restart is
+/// answering a different, staler question — the shelf itself is the record of
+/// what you own.
+///
+/// Cleared by the Shelf screen when it appears, rather than by the tab that
+/// navigates to it, so every route in (the tab, the empty-state button, a deep
+/// link) clears it. One place, no way to miss a path.
+class UnseenShelfCount extends Notifier<int> {
+  @override
+  int build() => 0;
+
+  void increment() => state = state + 1;
+
+  void clear() {
+    if (state != 0) state = 0;
+  }
+}
+
+final unseenShelfCountProvider =
+    NotifierProvider<UnseenShelfCount, int>(UnseenShelfCount.new);
+
 /// Below this many usable catalog rows, ask `suggest` for more names.
 ///
 /// Once the catalog is real this never fires again, so the cold-start cost is

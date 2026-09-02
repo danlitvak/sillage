@@ -191,6 +191,72 @@ void main() {
       handle.dispose();
     });
 
+    testWidgets('a badge draws over the icon without resizing the cell',
+        (tester) async {
+      final plain = <TabSpec>[
+        for (final l in ['Shelf', 'Scan', 'Taste', 'Discover'])
+          TabSpec(label: l, icon: Icons.circle, onTap: () {}),
+      ];
+      await _pumpAt(tester, const Size(390, 844),
+          _host(Align(alignment: Alignment.bottomCenter,
+              child: SillageTabBar(tabs: plain, selectedIndex: 0))));
+      final widthWithout = tester.getSize(find.byType(InkWell).first).width;
+
+      final badged = <TabSpec>[
+        TabSpec(label: 'Shelf', icon: Icons.circle, onTap: () {}, badgeCount: 3),
+        for (final l in ['Scan', 'Taste', 'Discover'])
+          TabSpec(label: l, icon: Icons.circle, onTap: () {}),
+      ];
+      await _pumpAt(tester, const Size(390, 844),
+          _host(Align(alignment: Alignment.bottomCenter,
+              child: SillageTabBar(tabs: badged, selectedIndex: 1))));
+
+      expect(find.text('3'), findsOneWidget);
+      // The count overlays the icon rather than displacing it, so a tab must
+      // not change width or jump when a badge appears.
+      expect(tester.getSize(find.byType(InkWell).first).width,
+          closeTo(widthWithout, 0.5));
+    });
+
+    testWidgets('a zero count draws nothing at all', (tester) async {
+      final tabs = <TabSpec>[
+        TabSpec(label: 'Shelf', icon: Icons.circle, onTap: () {}, badgeCount: 0),
+        for (final l in ['Scan', 'Taste', 'Discover'])
+          TabSpec(label: l, icon: Icons.circle, onTap: () {}),
+      ];
+      await _pumpAt(tester, const Size(390, 844),
+          _host(Align(alignment: Alignment.bottomCenter,
+              child: SillageTabBar(tabs: tabs, selectedIndex: 0))));
+      expect(find.text('0'), findsNothing);
+    });
+
+    testWidgets('a runaway count stays two digits plus a marker',
+        (tester) async {
+      final tabs = <TabSpec>[
+        TabSpec(label: 'Shelf', icon: Icons.circle, onTap: () {}, badgeCount: 250),
+        for (final l in ['Scan', 'Taste', 'Discover'])
+          TabSpec(label: l, icon: Icons.circle, onTap: () {}),
+      ];
+      await _pumpAt(tester, const Size(320, 568),
+          _host(Align(alignment: Alignment.bottomCenter,
+              child: SillageTabBar(tabs: tabs, selectedIndex: 0))));
+      expect(find.text('99+'), findsOneWidget);
+      expect(find.text('250'), findsNothing);
+    });
+
+    testWidgets('the badge survives the narrowest viewport', (tester) async {
+      // 240px is where labels are already dropped; the count must still fit.
+      final tabs = <TabSpec>[
+        TabSpec(label: 'Shelf', icon: Icons.circle, onTap: () {}, badgeCount: 12),
+        for (final l in ['Scan', 'Taste', 'Discover'])
+          TabSpec(label: l, icon: Icons.circle, onTap: () {}),
+      ];
+      await _pumpAt(tester, const Size(240, 600),
+          _host(Align(alignment: Alignment.bottomCenter,
+              child: SillageTabBar(tabs: tabs, selectedIndex: 0))));
+      expect(find.text('12'), findsOneWidget);
+    });
+
     testWidgets('labels are shown when there is room', (tester) async {
       await _pumpAt(
         tester,

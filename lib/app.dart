@@ -53,10 +53,17 @@ final routerProvider = Provider<GoRouter>((ref) {
       ShellRoute(
         builder: (context, state, child) => AppShell(child: child),
         routes: [
-          GoRoute(path: '/collection', builder: (_, _) => const CollectionScreen()),
-          GoRoute(path: '/scan', builder: (_, _) => const ScanScreen()),
-          GoRoute(path: '/taste', builder: (_, _) => const TasteScreen()),
-          GoRoute(path: '/discover', builder: (_, _) => const DiscoverScreen()),
+          GoRoute(
+              path: '/collection',
+              builder: (_, _) => const _Opaque(child: CollectionScreen())),
+          GoRoute(
+              path: '/scan', builder: (_, _) => const _Opaque(child: ScanScreen())),
+          GoRoute(
+              path: '/taste',
+              builder: (_, _) => const _Opaque(child: TasteScreen())),
+          GoRoute(
+              path: '/discover',
+              builder: (_, _) => const _Opaque(child: DiscoverScreen())),
         ],
       ),
       // Detail is NOT a tab — it is pushed, so it carries a back control.
@@ -69,6 +76,29 @@ final routerProvider = Provider<GoRouter>((ref) {
     ],
   );
 });
+
+/// Paints the theme background behind a routed page.
+///
+/// Without this, tab pages are TRANSPARENT. During a route transition go_router
+/// keeps both the outgoing and incoming pages in the tree, so two transparent
+/// pages render over the same Scaffold background and you read both at once —
+/// the content of the tab you left visibly overlapping the one you chose until
+/// the animation finishes.
+///
+/// Making each page opaque fixes it by occlusion, which keeps the transition
+/// itself intact: the incoming page simply covers the outgoing one as it
+/// arrives, the way a page transition is supposed to look.
+class _Opaque extends StatelessWidget {
+  const _Opaque({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => ColoredBox(
+        color: SillageTokens.of(context).background,
+        child: child,
+      );
+}
 
 class _AuthRefresh extends ChangeNotifier {
   _AuthRefresh(Ref ref) {
@@ -86,14 +116,15 @@ const _tabs = [
   (path: '/discover', label: 'Discover', icon: Icons.explore_outlined),
 ];
 
-class AppShell extends StatelessWidget {
+class AppShell extends ConsumerWidget {
   const AppShell({super.key, required this.child});
 
   final Widget child;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final location = GoRouterState.of(context).matchedLocation;
+    final unseen = ref.watch(unseenShelfCountProvider);
     final selected = _tabs.indexWhere((t) => t.path == location);
 
     return Scaffold(
@@ -108,6 +139,9 @@ class AppShell extends StatelessWidget {
               label: tab.label,
               icon: tab.icon,
               onTap: () => context.go(tab.path),
+              // Only the shelf carries a count, and only while the user is
+              // somewhere else — the Shelf screen clears it on arrival.
+              badgeCount: tab.path == '/collection' ? unseen : 0,
             ),
         ],
       ),

@@ -266,6 +266,16 @@ ThemeData buildTheme(Brightness brightness) {
       ),
     ),
     dividerTheme: DividerThemeData(color: tokens.border, thickness: 1, space: 1),
+    // Square, bordered, mono — a snack bar is app chrome like anything else,
+    // and Material's default is a rounded floating pill in the wrong palette.
+    snackBarTheme: SnackBarThemeData(
+      behavior: SnackBarBehavior.floating,
+      backgroundColor: tokens.foreground,
+      contentTextStyle: textTheme.bodyMedium?.copyWith(color: tokens.background),
+      actionTextColor: tokens.background,
+      shape: const RoundedRectangleBorder(borderRadius: squareRadius),
+      elevation: 0,
+    ),
     extensions: [tokens],
   );
 }

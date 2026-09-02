@@ -103,13 +103,15 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
       if (!mounted) return;
       setState(() => _busy = false);
 
-      await showConfirmSheet(
+      final added = await showConfirmSheet(
         context: context,
         ref: ref,
         result: result,
         photoBytes: photo.bytes,
       );
-      if (mounted) setState(() => _preview = null);
+      if (!mounted) return;
+      setState(() => _preview = null);
+      if (added != null) showAddedToShelf(context, added);
     } on ScanException catch (e) {
       if (!mounted) return;
       setState(() {
@@ -126,7 +128,8 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
   }
 
   Future<void> _addByHand() async {
-    await showManualEntrySheet(context: context, ref: ref);
+    final added = await showManualEntrySheet(context: context, ref: ref);
+    if (mounted && added != null) showAddedToShelf(context, added);
   }
 
   @override
@@ -143,39 +146,42 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
             Text('Scan', style: Theme.of(context).textTheme.headlineMedium),
             const SizedBox(height: Space.xl),
 
-            AspectRatio(
-              aspectRatio: 3 / 4,
-              child: Container(
-                decoration: BoxDecoration(
-                  border: Border.all(color: tokens.border),
-                  color: tokens.surface,
-                  borderRadius: squareRadius,
+            // The preview exists only once there IS a photo.
+            //
+            // It used to render as an empty bordered box with an icon in it,
+            // occupying most of a phone screen to communicate nothing and
+            // pushing the only three controls below the fold. An empty frame
+            // is not a placeholder for content, it is content that says
+            // nothing.
+            if (_preview != null) ...[
+              AspectRatio(
+                aspectRatio: 3 / 4,
+                child: Container(
+                  decoration: BoxDecoration(
+                    border: Border.all(color: tokens.border),
+                    color: tokens.surface,
+                    borderRadius: squareRadius,
+                  ),
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      Image.memory(_preview!, fit: BoxFit.cover),
+                      if (_busy)
+                        Positioned(
+                          left: 0,
+                          right: 0,
+                          bottom: 0,
+                          child: DefaultTextStyle(
+                            style: TextStyle(color: tokens.foreground),
+                            child: const BusyBar(height: 3),
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
-                child: _preview == null
-                    ? Center(
-                        child: Icon(Icons.photo_camera_outlined,
-                            size: 40, color: tokens.borderStrong),
-                      )
-                    : Stack(
-                        fit: StackFit.expand,
-                        children: [
-                          Image.memory(_preview!, fit: BoxFit.cover),
-                          if (_busy)
-                            Positioned(
-                              left: 0,
-                              right: 0,
-                              bottom: 0,
-                              child: DefaultTextStyle(
-                                style: TextStyle(color: tokens.foreground),
-                                child: const BusyBar(height: 3),
-                              ),
-                            ),
-                        ],
-                      ),
               ),
-            ),
-
-            const SizedBox(height: Space.lg),
+              const SizedBox(height: Space.lg),
+            ],
 
             if (_hasCamera)
               SizedBox(

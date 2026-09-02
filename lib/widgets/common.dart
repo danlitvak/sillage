@@ -396,10 +396,18 @@ Future<bool> confirmDestructive(
 
 /// One tab in [SillageTabBar].
 class TabSpec {
-  const TabSpec({required this.label, required this.icon, required this.onTap});
+  const TabSpec({
+    required this.label,
+    required this.icon,
+    required this.onTap,
+    this.badgeCount = 0,
+  });
   final String label;
   final IconData icon;
   final VoidCallback onTap;
+
+  /// Unseen items behind this tab. 0 draws nothing.
+  final int badgeCount;
 }
 
 /// The bottom tab bar.
@@ -492,7 +500,20 @@ class _NavCell extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.center,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(spec.icon, size: 22, color: colour),
+            // The badge overlays the icon rather than displacing it, so a tab
+            // does not change width or jump when a count appears.
+            Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Icon(spec.icon, size: 22, color: colour),
+                if (spec.badgeCount > 0)
+                  Positioned(
+                    top: -4,
+                    right: -8,
+                    child: _Badge(count: spec.badgeCount),
+                  ),
+              ],
+            ),
             if (showLabel) ...[
               const SizedBox(height: 2),
               Text(
@@ -510,4 +531,78 @@ class _NavCell extends StatelessWidget {
       ),
     );
   }
+}
+
+/// A small filled count.
+///
+/// Square, not the conventional circle: the house style allows a true circle
+/// only where the shape is the point (a swatch, an avatar), and a badge is
+/// chrome like every other surface here.
+class _Badge extends StatelessWidget {
+  const _Badge({required this.count});
+
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = SillageTokens.of(context);
+    // Beyond two digits the number stops being useful and starts being a
+    // layout problem.
+    final label = count > 99 ? '99+' : '$count';
+
+    return Semantics(
+      label: '$count new',
+      child: Container(
+        constraints: const BoxConstraints(minWidth: 14),
+        height: 14,
+        padding: const EdgeInsets.symmetric(horizontal: 3),
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: tokens.foreground,
+          borderRadius: squareRadius,
+          // A hairline in the bar's own background separates the badge from the
+          // icon underneath it without introducing a second colour.
+          border: Border.all(color: tokens.background, width: 1.5),
+        ),
+        child: Text(
+          label,
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: tokens.background,
+                fontSize: 9,
+                height: 1.0,
+                letterSpacing: 0,
+              ),
+        ),
+      ),
+    );
+  }
+}
+
+// =============================================================================
+
+/// Confirms that a bottle reached the shelf.
+///
+/// A shelf tile appearing on a screen the user is not currently looking at is
+/// not feedback — the scan flow ends on the Scan tab, so without this the only
+/// signal that anything happened is the sheet closing.
+///
+/// Pairs with the Shelf tab badge: this says it worked, the badge says where it
+/// went.
+void showAddedToShelf(BuildContext context, String fragranceName) {
+  ScaffoldMessenger.of(context)
+    ..clearSnackBars()
+    ..showSnackBar(
+      SnackBar(
+        content: Text('$fragranceName added to your shelf'),
+        duration: const Duration(seconds: 3),
+        // Clears the bottom nav rather than covering it, so the badge it is
+        // telling you about stays visible.
+        margin: const EdgeInsets.fromLTRB(
+          Space.lg,
+          0,
+          Space.lg,
+          60 + Space.bottomBarGutter,
+        ),
+      ),
+    );
 }

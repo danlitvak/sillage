@@ -12,11 +12,28 @@ import '../../widgets/common.dart';
 /// Their photo rather than a stock image — it makes the shelf recognisably
 /// theirs, and it sidesteps the licensing problem that stock bottle imagery
 /// would create.
-class CollectionScreen extends ConsumerWidget {
+class CollectionScreen extends ConsumerStatefulWidget {
   const CollectionScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<CollectionScreen> createState() => _CollectionScreenState();
+}
+
+class _CollectionScreenState extends ConsumerState<CollectionScreen> {
+  @override
+  void initState() {
+    super.initState();
+    // Cleared HERE rather than in the tab's onTap, so every route in clears it:
+    // the tab, the empty-state button, a deep link. One place, no path missed.
+    //
+    // After the frame, because a provider must not be written during a build.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) ref.read(unseenShelfCountProvider.notifier).clear();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final collection = ref.watch(collectionProvider);
 
     return SafeArea(

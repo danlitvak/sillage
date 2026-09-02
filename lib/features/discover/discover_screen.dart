@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../core/recommend.dart';
 import '../../core/taste.dart';
@@ -42,12 +43,23 @@ class DiscoverScreen extends ConsumerWidget {
         ),
         data: (groups) {
           if (profile != null && !profile.hasEnoughForPatterns) {
+            final short = TasteThresholds.minimumCollectionForPatterns -
+                profile.itemCount;
             return EmptyState(
               title: 'Not enough to go on yet',
               detail:
                   'Recommendations need at least '
                   '${TasteThresholds.minimumCollectionForPatterns} bottles. '
                   'You have ${profile.itemCount}.',
+              // A dead end otherwise: the screen states a requirement and
+              // offers no way to meet it. The button says how many are left
+              // rather than just "scan", so the ask is finite.
+              action: FilledButton(
+                onPressed: () => context.go('/scan'),
+                child: Text(
+                  short == 1 ? 'Scan 1 more bottle' : 'Scan $short more bottles',
+                ),
+              ),
             );
           }
 
